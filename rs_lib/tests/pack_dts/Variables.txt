@@ -1,0 +1,5 @@
+# mod.ts
+const test: string! = "";
+
+# output.d.ts
+const test: string;

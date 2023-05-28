@@ -1,0 +1,22 @@
+# mod.ts
+function a(test: string): number {
+  return 5;
+}
+
+function b(test: string) {
+  // no return statement
+  console.log();
+}
+
+function c(test?: string) {
+  // return statement
+  return 5;
+}
+
+function d<const T extends 5>(): T {}
+
+# output.d.ts
+function a(test: string): number;
+function b(test: string): void;
+function c(test?: string): void;
+function d<const T extends 5>(): T;

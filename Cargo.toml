@@ -1,0 +1,5 @@
+[workspace]
+members = [
+  "rs_lib",
+]
+edition = "2021"

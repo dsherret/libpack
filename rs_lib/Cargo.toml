@@ -1,0 +1,29 @@
+[package]
+name = "rs_lib"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+crate_type = ["cdylib", "rlib"]
+
+[profile.release]
+codegen-units = 1
+incremental = true
+lto = true
+opt-level = "z"
+
+[dependencies]
+anyhow = "1.0.71"
+console_error_panic_hook = "0.1.6"
+deno_ast = { path = "../../deno_ast", features = ["codegen", "module_specifier", "proposal", "react", "sourcemap", "transforms", "typescript", "visit", "transpiling", "view"] }
+deno_graph = { path = "../../deno_graph" }
+js-sys = "=0.3.61"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "=0.4.5"
+wasm-bindgen = "=0.2.84"
+wasm-bindgen-futures = "=0.4.34"
+
+[dev-dependencies]
+futures = "0.3.17"
+pretty_assertions = "1.0.0"
+tokio = { version = "1.11.0", features = ["full"] }

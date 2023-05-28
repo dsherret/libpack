@@ -1,0 +1,17 @@
+# mod.ts
+console.log(5);
+expr();
+test;
+export type Test<T extends string> = T extends string ? "test" : 5;
+export module Test.Test {
+  /** Testing */
+  export function test(): void {
+  }
+  console.log(5);
+}
+
+# output.d.ts
+export type Test<T extends string> = T extends string ? "test" : 5;
+export module Test.Test {
+    /** Testing */ export function test(): void;
+}

@@ -1,0 +1,66 @@
+# mod.ts
+const test: string = 5;
+
+function test<T>(test: string): string {
+  const test = <test>5 satisfies number as const;
+  const asdf = obj!.test;
+  f<x>, g<y>;
+  return (test as 5) as string;
+}
+
+@decs<T>()
+export class Test<T> implements Other extends Other2<T> {
+  private a: string;
+  protected b: string;
+  public c: number;
+  abstract d: number;
+  readonly e: number;
+  override f!: number;
+  declare g: number;
+  private #a: string;
+  protected #b: string;
+  public #c: number;
+  readonly #e: number;
+  override #f!: number;
+  #g?: ResponseBody | ResponseBodyFunction;
+
+  constructor(public a: string, protected b: number, private c, readonly d?: string, override e: number = 2) {
+    super();
+  }
+}
+
+# output.js
+// mod.ts
+function _ts_decorate(decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for(var i = decorators.length - 1; i >= 0; i--)if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+}
+const test = 5;
+function test(test) {
+    const test = 5;
+    const asdf = obj.test;
+    f, g;
+    return test;
+}
+export let Test = class Test extends Other2 {
+    a;
+    b;
+    c;
+    d;
+    e;
+    f;
+    #a;
+    #b;
+    #c;
+    #e;
+    #f;
+    #g;
+    constructor(a, b, c, d, e = 2){
+        super();
+    }
+};
+Test = _ts_decorate([
+    decs()
+], Test);
