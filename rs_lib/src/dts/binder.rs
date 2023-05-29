@@ -9,8 +9,6 @@ use deno_ast::ParsedSource;
 use deno_ast::SourceRange;
 use deno_ast::SourceRangedForSpanned;
 
-use super::maybe_infer_type_from_expr;
-
 // Key point:
 // Only interested in creating a graph of dependencies of the public api.
 // I think probably creating a hash of swc id -> symbol should work.
@@ -119,14 +117,9 @@ impl ModuleSymbol {
     next_id
   }
 
-  fn get_symbol_for_export(
-    &mut self,
-    id: Id,
-    range: SourceRange,
-  ) -> &mut Symbol {
+  fn add_export(&mut self, id: Id, range: SourceRange) {
     let symbol_id = self.ensure_symbol_for_swc_id(id.clone(), range);
     self.exports.insert(id.0.to_string(), symbol_id);
-    self.symbols.get_mut(&symbol_id).unwrap()
   }
 
   fn get_symbol_from_swc_id(
@@ -194,187 +187,223 @@ impl ModuleAnalyzer {
 
 fn fill_module(file_module: &mut ModuleSymbol, module: &Module) {
   for module_item in &module.body {
+    fill_module_item(file_module, module_item);
+
+    // now fill the file exports
     match module_item {
       ModuleItem::ModuleDecl(decl) => match decl {
-        ModuleDecl::Import(import_decl) => {
-          for specifier in &import_decl.specifiers {
-            match specifier {
-              ImportSpecifier::Named(n) => {
-                if let Some(imported_name) = &n.imported {
-                  match imported_name {
-                    ModuleExportName::Ident(ident) => {
-                      let local_symbol = file_module
-                        .get_symbol_from_swc_id(n.local.to_id(), n.range());
-                      local_symbol.deps.insert(ident.to_id());
-                      let symbol = file_module
-                        .get_symbol_from_swc_id(ident.to_id(), ident.range());
-                      symbol.file_dep = Some(FileDep {
-                        name: FileDepName::Name(ident.sym.to_string()),
-                        specifier: import_decl.src.value.to_string(),
-                      });
-                    }
-                    ModuleExportName::Str(_) => todo!(),
-                  }
-                } else {
-                  let local_symbol = file_module
-                    .get_symbol_from_swc_id(n.local.to_id(), n.range());
-                  local_symbol.file_dep = Some(FileDep {
-                    name: FileDepName::Name(n.local.sym.to_string()),
-                    specifier: import_decl.src.value.to_string(),
-                  });
-                }
-              }
-              ImportSpecifier::Default(n) => {
-                let symbol = file_module
-                  .get_symbol_from_swc_id(n.local.to_id(), n.range());
-                symbol.file_dep = Some(FileDep {
-                  name: FileDepName::Name("default".to_string()),
-                  specifier: import_decl.src.value.to_string(),
-                });
-              }
-              ImportSpecifier::Namespace(n) => {
-                let symbol = file_module
-                  .get_symbol_from_swc_id(n.local.to_id(), n.range());
-                symbol.file_dep = Some(FileDep {
-                  name: FileDepName::All,
-                  specifier: import_decl.src.value.to_string(),
-                });
-              }
-            }
-          }
+        ModuleDecl::Import(_) => {
+          // ignore
         }
         ModuleDecl::ExportDecl(export_decl) => match &export_decl.decl {
           Decl::Class(n) => {
-            let symbol = file_module
-              .get_symbol_for_export(n.ident.to_id(), export_decl.range());
-            fill_class_decl(symbol, n);
+            file_module.add_export(n.ident.to_id(), export_decl.range());
           }
           Decl::Fn(n) => {
-            let symbol = file_module
-              .get_symbol_for_export(n.ident.to_id(), export_decl.range());
-            fill_fn_decl(symbol, n);
+            file_module.add_export(n.ident.to_id(), export_decl.range());
           }
           Decl::Var(n) => {
             for decl in &n.decls {
               let ids: Vec<Id> = find_pat_ids(&decl.name);
               for id in ids {
+                file_module.add_export(id, decl.range());
+              }
+            }
+          }
+          Decl::TsInterface(n) => {
+            file_module.add_export(n.id.to_id(), export_decl.range());
+          }
+          Decl::TsTypeAlias(n) => {
+            file_module.add_export(n.id.to_id(), export_decl.range());
+          }
+          Decl::TsEnum(n) => {
+            file_module.add_export(n.id.to_id(), export_decl.range());
+          }
+          Decl::TsModule(n) => match &n.id {
+            TsModuleName::Ident(ident) => {
+              file_module.add_export(ident.to_id(), export_decl.range());
+            }
+            TsModuleName::Str(_) => todo!(),
+          },
+        },
+        ModuleDecl::ExportNamed(_)
+        | ModuleDecl::ExportDefaultDecl(_)
+        | ModuleDecl::ExportDefaultExpr(_)
+        | ModuleDecl::ExportAll(_)
+        | ModuleDecl::TsImportEquals(_)
+        | ModuleDecl::TsExportAssignment(_)
+        | ModuleDecl::TsNamespaceExport(_) => {
+          // ignore
+        }
+      },
+      ModuleItem::Stmt(_) => {
+        // ignore
+      }
+    }
+  }
+}
+
+fn fill_module_item(file_module: &mut ModuleSymbol, module_item: &ModuleItem) {
+  match module_item {
+    ModuleItem::ModuleDecl(decl) => match decl {
+      ModuleDecl::Import(import_decl) => {
+        for specifier in &import_decl.specifiers {
+          match specifier {
+            ImportSpecifier::Named(n) => {
+              if let Some(imported_name) = &n.imported {
+                match imported_name {
+                  ModuleExportName::Ident(ident) => {
+                    let local_symbol = file_module
+                      .get_symbol_from_swc_id(n.local.to_id(), n.range());
+                    local_symbol.deps.insert(ident.to_id());
+                    let symbol = file_module
+                      .get_symbol_from_swc_id(ident.to_id(), ident.range());
+                    symbol.file_dep = Some(FileDep {
+                      name: FileDepName::Name(ident.sym.to_string()),
+                      specifier: import_decl.src.value.to_string(),
+                    });
+                  }
+                  ModuleExportName::Str(_) => todo!(),
+                }
+              } else {
+                let local_symbol = file_module
+                  .get_symbol_from_swc_id(n.local.to_id(), n.range());
+                local_symbol.file_dep = Some(FileDep {
+                  name: FileDepName::Name(n.local.sym.to_string()),
+                  specifier: import_decl.src.value.to_string(),
+                });
+              }
+            }
+            ImportSpecifier::Default(n) => {
+              let symbol =
+                file_module.get_symbol_from_swc_id(n.local.to_id(), n.range());
+              symbol.file_dep = Some(FileDep {
+                name: FileDepName::Name("default".to_string()),
+                specifier: import_decl.src.value.to_string(),
+              });
+            }
+            ImportSpecifier::Namespace(n) => {
+              let symbol =
+                file_module.get_symbol_from_swc_id(n.local.to_id(), n.range());
+              symbol.file_dep = Some(FileDep {
+                name: FileDepName::All,
+                specifier: import_decl.src.value.to_string(),
+              });
+            }
+          }
+        }
+      }
+      ModuleDecl::ExportDecl(export_decl) => match &export_decl.decl {
+        Decl::Class(n) => {
+          let symbol = file_module
+            .get_symbol_from_swc_id(n.ident.to_id(), export_decl.range());
+          fill_class_decl(symbol, n);
+        }
+        Decl::Fn(n) => {
+          let symbol = file_module
+            .get_symbol_from_swc_id(n.ident.to_id(), export_decl.range());
+          fill_fn_decl(symbol, n);
+        }
+        Decl::Var(n) => {
+          for decl in &n.decls {
+            let ids: Vec<Id> = find_pat_ids(&decl.name);
+            for id in ids {
+              let symbol = file_module.get_symbol_from_swc_id(id, decl.range());
+              fill_var_declarator(symbol, decl);
+            }
+          }
+        }
+        Decl::TsInterface(n) => {
+          let symbol = file_module
+            .get_symbol_from_swc_id(n.id.to_id(), export_decl.range());
+          fill_ts_interface(symbol, n);
+        }
+        Decl::TsTypeAlias(n) => {
+          let symbol = file_module
+            .get_symbol_from_swc_id(n.id.to_id(), export_decl.range());
+          fill_ts_type_alias(symbol, n);
+        }
+        Decl::TsEnum(n) => {
+          let symbol = file_module
+            .get_symbol_from_swc_id(n.id.to_id(), export_decl.range());
+          fill_ts_enum(symbol, n);
+        }
+        Decl::TsModule(n) => {
+          fill_ts_module(file_module, export_decl.range(), n)
+        }
+      },
+      ModuleDecl::ExportNamed(_) => todo!(),
+      ModuleDecl::ExportDefaultDecl(_) => todo!(),
+      ModuleDecl::ExportDefaultExpr(_) => todo!(),
+      ModuleDecl::ExportAll(_) => todo!(),
+      ModuleDecl::TsImportEquals(_) => todo!(),
+      ModuleDecl::TsExportAssignment(_) => todo!(),
+      ModuleDecl::TsNamespaceExport(_) => todo!(),
+    },
+    ModuleItem::Stmt(stmt) => match stmt {
+      Stmt::Block(_)
+      | Stmt::Empty(_)
+      | Stmt::Debugger(_)
+      | Stmt::With(_)
+      | Stmt::Return(_)
+      | Stmt::Labeled(_)
+      | Stmt::Break(_)
+      | Stmt::Continue(_)
+      | Stmt::If(_)
+      | Stmt::Switch(_)
+      | Stmt::Throw(_)
+      | Stmt::Try(_)
+      | Stmt::While(_)
+      | Stmt::DoWhile(_)
+      | Stmt::For(_)
+      | Stmt::ForIn(_)
+      | Stmt::ForOf(_)
+      | Stmt::Expr(_) => {
+        // ignore
+      }
+      Stmt::Decl(n) => {
+        match n {
+          Decl::Class(n) => {
+            let id = n.ident.to_id();
+            let symbol = file_module.get_symbol_from_swc_id(id, n.range());
+            fill_class_decl(symbol, n);
+          }
+          Decl::Fn(n) => {
+            let id = n.ident.to_id();
+            let symbol = file_module.get_symbol_from_swc_id(id, n.range());
+            fill_fn_decl(symbol, n);
+          }
+          Decl::Var(var_decl) => {
+            for decl in &var_decl.decls {
+              let ids: Vec<Id> = find_pat_ids(&decl.name);
+              for id in ids {
                 let symbol =
-                  file_module.get_symbol_for_export(id, decl.range());
+                  file_module.get_symbol_from_swc_id(id, decl.range());
                 fill_var_declarator(symbol, decl);
               }
             }
           }
           Decl::TsInterface(n) => {
-            let symbol = file_module
-              .get_symbol_for_export(n.id.to_id(), export_decl.range());
+            let id = n.id.to_id();
+            let symbol = file_module.get_symbol_from_swc_id(id, n.range());
             fill_ts_interface(symbol, n);
           }
           Decl::TsTypeAlias(n) => {
-            let symbol = file_module
-              .get_symbol_for_export(n.id.to_id(), export_decl.range());
+            let id = n.id.to_id();
+            let symbol = file_module.get_symbol_from_swc_id(id, n.range());
             fill_ts_type_alias(symbol, n);
           }
           Decl::TsEnum(n) => {
-            let symbol = file_module
-              .get_symbol_for_export(n.id.to_id(), export_decl.range());
+            let id = n.id.to_id();
+            let symbol = file_module.get_symbol_from_swc_id(id, n.range());
             fill_ts_enum(symbol, n);
           }
-          Decl::TsModule(n) => match &n.id {
-            TsModuleName::Ident(ident) => {
-              let symbol = file_module
-                .get_symbol_for_export(ident.to_id(), export_decl.range());
-              fill_ts_module(symbol, n);
-            }
-            TsModuleName::Str(_) => todo!(),
-          },
-        },
-        ModuleDecl::ExportNamed(_) => todo!(),
-        ModuleDecl::ExportDefaultDecl(_) => todo!(),
-        ModuleDecl::ExportDefaultExpr(_) => todo!(),
-        ModuleDecl::ExportAll(_) => todo!(),
-        ModuleDecl::TsImportEquals(_) => todo!(),
-        ModuleDecl::TsExportAssignment(_) => todo!(),
-        ModuleDecl::TsNamespaceExport(_) => todo!(),
-      },
-      ModuleItem::Stmt(stmt) => match stmt {
-        Stmt::Block(_)
-        | Stmt::Empty(_)
-        | Stmt::Debugger(_)
-        | Stmt::With(_)
-        | Stmt::Return(_)
-        | Stmt::Labeled(_)
-        | Stmt::Break(_)
-        | Stmt::Continue(_)
-        | Stmt::If(_)
-        | Stmt::Switch(_)
-        | Stmt::Throw(_)
-        | Stmt::Try(_)
-        | Stmt::While(_)
-        | Stmt::DoWhile(_)
-        | Stmt::For(_)
-        | Stmt::ForIn(_)
-        | Stmt::ForOf(_)
-        | Stmt::Expr(_) => {
-          // ignore
-        }
-        Stmt::Decl(n) => {
-          match n {
-            Decl::Class(n) => {
-              let id = n.ident.to_id();
-              let symbol = file_module.get_symbol_from_swc_id(id, n.range());
-              fill_class_decl(symbol, n);
-            }
-            Decl::Fn(n) => {
-              let id = n.ident.to_id();
-              let symbol = file_module.get_symbol_from_swc_id(id, n.range());
-              fill_fn_decl(symbol, n);
-            }
-            Decl::Var(var_decl) => {
-              for decl in &var_decl.decls {
-                let ids: Vec<Id> = find_pat_ids(&decl.name);
-                for id in ids {
-                  let symbol =
-                    file_module.get_symbol_from_swc_id(id, decl.range());
-                  fill_var_declarator(symbol, decl);
-                }
-              }
-            }
-            Decl::TsInterface(n) => {
-              let id = n.id.to_id();
-              let symbol = file_module.get_symbol_from_swc_id(id, n.range());
-              fill_ts_interface(symbol, n);
-            }
-            Decl::TsTypeAlias(n) => {
-              let id = n.id.to_id();
-              let symbol = file_module.get_symbol_from_swc_id(id, n.range());
-              fill_ts_type_alias(symbol, n);
-            }
-            Decl::TsEnum(n) => {
-              let id = n.id.to_id();
-              let symbol = file_module.get_symbol_from_swc_id(id, n.range());
-              fill_ts_enum(symbol, n);
-            }
-            Decl::TsModule(n) => {
-              let id = match &n.id {
-                TsModuleName::Ident(ident) => ident.to_id(),
-                TsModuleName::Str(_) => todo!(),
-              };
-              let symbol = file_module.get_symbol_from_swc_id(id, n.range());
-              fill_ts_module(symbol, n);
-
-              // todo: need to actually do this
-              if let Some(body) = &n.body {
-                match body {
-                  TsNamespaceBody::TsModuleBlock(block) => {}
-                  TsNamespaceBody::TsNamespaceDecl(_) => {}
-                }
-              }
-              // now go down through all the children
-            }
-          };
-        }
-      },
-    }
+          Decl::TsModule(n) => {
+            fill_ts_module(file_module, n.range(), n);
+          }
+        };
+      }
+    },
   }
 }
 
@@ -459,17 +488,46 @@ fn fill_ts_enum(symbol: &mut Symbol, n: &TsEnumDecl) {
   }
 }
 
-fn fill_ts_module(symbol: &mut Symbol, n: &TsModuleDecl) {
+fn fill_ts_module(
+  file_module: &mut ModuleSymbol,
+  range: SourceRange,
+  n: &TsModuleDecl,
+) {
+  let mut id = match &n.id {
+    TsModuleName::Ident(ident) => ident.to_id(),
+    TsModuleName::Str(_) => todo!(),
+  };
+  let mut symbol_id = file_module.ensure_symbol_for_swc_id(id.clone(), range);
+
   // fill the exported declarations
   if let Some(body) = &n.body {
     let mut current = body;
     let block = loop {
       match current {
         TsNamespaceBody::TsModuleBlock(block) => break block,
-        TsNamespaceBody::TsNamespaceDecl(decl) => current = &decl.body,
+        TsNamespaceBody::TsNamespaceDecl(decl) => {
+          let previous_symbol_id = symbol_id;
+          let previous_id = id;
+          id = decl.id.to_id();
+          symbol_id =
+            file_module.ensure_symbol_for_swc_id(id.clone(), decl.range());
+          file_module
+            .symbol_mut(previous_symbol_id)
+            .unwrap()
+            .deps
+            .insert(id.clone());
+          file_module
+            .symbol_mut(symbol_id)
+            .unwrap()
+            .deps
+            .insert(previous_id);
+          current = &decl.body;
+        }
       }
     };
     for item in &block.body {
+      fill_module_item(file_module, item);
+      let symbol = file_module.symbol_mut(symbol_id).unwrap();
       match item {
         ModuleItem::ModuleDecl(decl) => match decl {
           ModuleDecl::Import(_)
@@ -656,131 +714,9 @@ fn fill_ts_type_ann(symbol: &mut Symbol, type_ann: &TsTypeAnn) {
   fill_ts_type(symbol, &type_ann.type_ann)
 }
 
-fn fill_ts_type(symbol: &mut Symbol, ts_type: &TsType) {
-  match ts_type {
-    TsType::TsKeywordType(n) => fill_ts_keyword_type(symbol, n),
-    TsType::TsThisType(n) => fill_ts_this_type(symbol, n),
-    TsType::TsFnOrConstructorType(n) => {
-      fill_ts_fn_or_constructor_type(symbol, n)
-    }
-    TsType::TsTypeRef(n) => fill_ts_type_ref(symbol, n),
-    TsType::TsTypeQuery(n) => fill_ts_type_query(symbol, n),
-    TsType::TsTypeLit(n) => fill_ts_type_lit(symbol, n),
-    TsType::TsArrayType(n) => fill_ts_array_type(symbol, n),
-    TsType::TsTupleType(n) => fill_ts_tuple_type(symbol, n),
-    TsType::TsOptionalType(n) => fill_ts_optional_type(symbol, n),
-    TsType::TsRestType(n) => fill_ts_rest_type(symbol, n),
-    TsType::TsUnionOrIntersectionType(n) => {
-      fill_ts_union_or_intersection_type(symbol, n)
-    }
-    TsType::TsConditionalType(n) => fill_ts_conditional_type(symbol, n),
-    TsType::TsInferType(n) => fill_ts_infer_type(symbol, n),
-    TsType::TsParenthesizedType(n) => fill_ts_parenthesized_type(symbol, n),
-    TsType::TsTypeOperator(n) => fill_ts_type_operator(symbol, n),
-    TsType::TsIndexedAccessType(n) => fill_ts_indexed_access_type(symbol, n),
-    TsType::TsMappedType(n) => fill_ts_mapped_type(symbol, n),
-    TsType::TsLitType(n) => fill_ts_lit_type(symbol, n),
-    TsType::TsTypePredicate(n) => fill_ts_type_predicate(symbol, n),
-    TsType::TsImportType(n) => fill_ts_import_type(symbol, n),
-  }
-}
-
-fn fill_ts_keyword_type(_symbol: &mut Symbol, _n: &TsKeywordType) {
-  // nothing to do, no dependencies
-}
-
-fn fill_ts_this_type(_symbol: &mut Symbol, _n: &TsThisType) {
-  // nothing to do, no dependencies
-}
-
-fn fill_ts_fn_or_constructor_type(
-  symbol: &mut Symbol,
-  n: &TsFnOrConstructorType,
-) {
-  todo!()
-}
-
-fn fill_ts_type_ref(symbol: &mut Symbol, n: &TsTypeRef) {
-  match &n.type_name {
-    TsEntityName::TsQualifiedName(_) => todo!(),
-    TsEntityName::Ident(ident) => {
-      symbol.deps.insert(ident.to_id());
-    }
-  }
-
-  if let Some(type_params) = &n.type_params {
-    fill_ts_type_param_instantiation(symbol, type_params)
-  }
-}
-
-fn fill_ts_type_query(symbol: &mut Symbol, n: &TsTypeQuery) {
-  todo!()
-}
-
-fn fill_ts_type_lit(symbol: &mut Symbol, n: &TsTypeLit) {
-  todo!()
-}
-
-fn fill_ts_array_type(symbol: &mut Symbol, n: &TsArrayType) {
-  todo!()
-}
-
-fn fill_ts_tuple_type(symbol: &mut Symbol, n: &TsTupleType) {
-  todo!()
-}
-
-fn fill_ts_optional_type(symbol: &mut Symbol, n: &TsOptionalType) {
-  todo!()
-}
-
-fn fill_ts_rest_type(symbol: &mut Symbol, n: &TsRestType) {
-  todo!()
-}
-
-fn fill_ts_union_or_intersection_type(
-  symbol: &mut Symbol,
-  n: &TsUnionOrIntersectionType,
-) {
-  todo!()
-}
-
-fn fill_ts_conditional_type(symbol: &mut Symbol, n: &TsConditionalType) {
-  fill_ts_type(symbol, &n.check_type);
-  fill_ts_type(symbol, &n.extends_type);
-  fill_ts_type(symbol, &n.true_type);
-  fill_ts_type(symbol, &n.false_type);
-}
-
-fn fill_ts_infer_type(symbol: &mut Symbol, n: &TsInferType) {
-  todo!()
-}
-
-fn fill_ts_parenthesized_type(symbol: &mut Symbol, n: &TsParenthesizedType) {
-  todo!()
-}
-
-fn fill_ts_type_operator(symbol: &mut Symbol, n: &TsTypeOperator) {
-  todo!()
-}
-
-fn fill_ts_indexed_access_type(symbol: &mut Symbol, n: &TsIndexedAccessType) {
-  todo!()
-}
-
-fn fill_ts_mapped_type(symbol: &mut Symbol, n: &TsMappedType) {
-  todo!()
-}
-
-fn fill_ts_lit_type(symbol: &mut Symbol, n: &TsLitType) {
-  // nothing to do
-}
-
-fn fill_ts_type_predicate(symbol: &mut Symbol, n: &TsTypePredicate) {
-  todo!()
-}
-
-fn fill_ts_import_type(symbol: &mut Symbol, n: &TsImportType) {
-  todo!()
+fn fill_ts_type(symbol: &mut Symbol, n: &TsType) {
+  let mut visitor = SymbolFillVisitor { symbol };
+  n.visit_with(&mut visitor);
 }
 
 fn fill_private_method(symbol: &mut Symbol, method: &PrivateMethod) {

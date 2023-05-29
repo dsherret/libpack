@@ -665,7 +665,27 @@ impl<'a> VisitMut for DtsTransformer<'a> {
       }
     });
     n.retain(|item| {
-      item.span() == DUMMY_SP || self.ranges.contains(&item.range())
+      let should_retain =
+        item.span() == DUMMY_SP || self.ranges.contains(&item.range());
+      if should_retain {
+        true
+      } else {
+        let decl = match item {
+          ModuleItem::ModuleDecl(decl) => {
+            decl.as_export_decl().map(|d| &d.decl)
+          }
+          ModuleItem::Stmt(stmt) => stmt.as_decl(),
+        };
+        // check if any variable declaration individually is traced
+        decl
+          .and_then(|d| d.as_var())
+          .map(|d| {
+            d.decls.iter().any(|decl| {
+              decl.span() == DUMMY_SP || self.ranges.contains(&decl.range())
+            })
+          })
+          .unwrap_or(false)
+      }
     });
     visit_mut_module_items(self, n)
   }
@@ -769,6 +789,9 @@ impl<'a> VisitMut for DtsTransformer<'a> {
   }
 
   fn visit_mut_var_decl(&mut self, n: &mut VarDecl) {
+    n.decls.retain(|decl| {
+      decl.span() == DUMMY_SP || self.ranges.contains(&decl.range())
+    });
     visit_mut_var_decl(self, n)
   }
 
