@@ -906,6 +906,7 @@ dependencies = [
  "deno_ast",
  "deno_graph",
  "futures",
+ "indexmap",
  "js-sys",
  "pretty_assertions",
  "serde",

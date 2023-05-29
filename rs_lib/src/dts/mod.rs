@@ -4,28 +4,32 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 use std::string::FromUtf8Error;
 
-use deno_ast::SourceRange;
 use deno_ast::swc::ast::*;
 use deno_ast::swc::codegen;
 use deno_ast::swc::codegen::text_writer::JsWriter;
 use deno_ast::swc::codegen::Node;
+use deno_ast::swc::common::comments::Comment;
+use deno_ast::swc::common::comments::CommentKind;
+use deno_ast::swc::common::comments::Comments;
+use deno_ast::swc::common::comments::SingleThreadedComments;
 use deno_ast::swc::common::BytePos;
 use deno_ast::swc::common::FileName;
 use deno_ast::swc::common::SourceMap;
-use deno_ast::swc::common::DUMMY_SP;
 use deno_ast::swc::common::Span;
-use deno_ast::swc::common::comments::Comment;
-use deno_ast::swc::common::comments::Comments;
-use deno_ast::swc::common::comments::SingleThreadedComments;
+use deno_ast::swc::common::Spanned;
+use deno_ast::swc::common::DUMMY_SP;
 use deno_ast::swc::visit::*;
 use deno_ast::ModuleSpecifier;
 use deno_ast::SourceMapConfig;
+use deno_ast::SourceRange;
 use deno_ast::SourceRangedForSpanned;
 use deno_graph::CapturingModuleParser;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleParser;
 
 use crate::dts::binder::ModuleAnalyzer;
+
+use self::binder::ModuleSymbol;
 
 mod analyzer;
 mod binder;
@@ -39,7 +43,6 @@ pub fn pack_dts(
   graph: &ModuleGraph,
   parser: &CapturingModuleParser,
 ) -> Result<String, anyhow::Error> {
-
   // run the tracer
   let module_analyzer = tracer::trace(graph, parser)?;
 
@@ -65,14 +68,26 @@ pub fn pack_dts(
         )?;
 
         let file_name = FileName::Url(graph_module.specifier.clone());
-        let source_file = source_map
-          .new_source_file(file_name, parsed_source.text_info().text().to_string());
+        let source_file = source_map.new_source_file(
+          file_name,
+          parsed_source.text_info().text().to_string(),
+        );
 
         let mut module = (*parsed_source.module()).clone();
         let is_root = graph.roots.contains(&graph_module.specifier);
+        let module_name = if is_root {
+          None
+        } else {
+          Some(module_symbol.module_id().to_code_string())
+        };
         // strip all the non-declaration types
         let mut dts_transformer = DtsTransformer {
+          module_name,
+          module_specifier: &graph_module.specifier,
+          module_symbol,
           ranges,
+          graph,
+          module_analyzer: &module_analyzer,
         };
         module.visit_mut_with(&mut dts_transformer);
 
@@ -82,15 +97,29 @@ pub fn pack_dts(
         };
         module.visit_mut_with(&mut span_adjuster);
 
-        // add the file's comments to the global comment map
+        // Add the file's leading comments to the global comment map.
+        // We don't have to deal with the trailing comments because
+        // we're only interested in jsdocs
         for (byte_pos, comment_vec) in parsed_source.comments().leading_map() {
           let byte_pos = source_file.start_pos + *byte_pos;
           for comment in comment_vec {
-            global_comments.add_leading(byte_pos, Comment {
-              kind: comment.kind,
-              span: Span::new(source_file.start_pos + comment.span.lo, source_file.start_pos + comment.span.hi, comment.span.ctxt),
-              text: comment.text.clone(),
-            });
+            // only include js docs
+            if comment.kind == CommentKind::Block
+              && comment.text.starts_with('*')
+            {
+              global_comments.add_leading(
+                byte_pos,
+                Comment {
+                  kind: comment.kind,
+                  span: Span::new(
+                    source_file.start_pos + comment.span.lo,
+                    source_file.start_pos + comment.span.hi,
+                    comment.span.ctxt,
+                  ),
+                  text: comment.text.clone(),
+                },
+              );
+            }
           }
         }
         final_module.body.extend(module.body);
@@ -124,11 +153,16 @@ pub fn pack_dts(
   Ok(String::from_utf8(buf)?)
 }
 
-struct DtsTransformer {
+struct DtsTransformer<'a> {
+  module_name: Option<String>,
+  module_specifier: &'a ModuleSpecifier,
+  module_symbol: &'a ModuleSymbol,
   ranges: HashSet<SourceRange>,
+  graph: &'a ModuleGraph,
+  module_analyzer: &'a ModuleAnalyzer,
 }
 
-impl VisitMut for DtsTransformer {
+impl<'a> VisitMut for DtsTransformer<'a> {
   fn visit_mut_auto_accessor(&mut self, n: &mut AutoAccessor) {
     visit_mut_auto_accessor(self, n)
   }
@@ -146,21 +180,122 @@ impl VisitMut for DtsTransformer {
   }
 
   fn visit_mut_class(&mut self, n: &mut Class) {
+    let had_private_prop = n.body.iter().any(|b| {
+      matches!(
+        b,
+        ClassMember::PrivateProp(_) | ClassMember::PrivateMethod(_)
+      )
+    });
     n.body.retain(|member| match member {
-      ClassMember::Constructor(_) => true,
-      ClassMember::Method(method) => {
-        method.accessibility != Some(Accessibility::Private)
-      }
-      ClassMember::ClassProp(prop) => {
-        prop.accessibility != Some(Accessibility::Private)
-      }
-      ClassMember::TsIndexSignature(_) => true,
+      ClassMember::Constructor(_)
+      | ClassMember::Method(_)
+      | ClassMember::ClassProp(_)
+      | ClassMember::TsIndexSignature(_) => true,
       ClassMember::PrivateProp(_)
       | ClassMember::PrivateMethod(_)
       | ClassMember::Empty(_)
       | ClassMember::StaticBlock(_) => false,
       ClassMember::AutoAccessor(_) => true,
     });
+
+    for member in n.body.iter_mut() {
+      match member {
+        ClassMember::Method(method) => {
+          if method.accessibility == Some(Accessibility::Private) {
+            *member = ClassMember::ClassProp(ClassProp {
+              span: DUMMY_SP,
+              key: method.key.clone(),
+              value: None,
+              type_ann: None,
+              is_static: method.is_static,
+              decorators: Vec::new(),
+              accessibility: Some(Accessibility::Private),
+              is_abstract: method.is_abstract,
+              is_optional: method.is_optional,
+              is_override: method.is_override,
+              readonly: false,
+              declare: false,
+              definite: false,
+            });
+          }
+        }
+        ClassMember::ClassProp(prop) => {
+          if prop.accessibility == Some(Accessibility::Private) {
+            prop.type_ann = None;
+          }
+        }
+        _ => {}
+      }
+    }
+
+    let mut insert_props = Vec::new();
+    if had_private_prop {
+      insert_props.push(ClassMember::PrivateProp(PrivateProp {
+        span: DUMMY_SP,
+        key: PrivateName {
+          span: DUMMY_SP,
+          id: Ident {
+            span: DUMMY_SP,
+            sym: "private".into(),
+            optional: false,
+          },
+        },
+        value: None,
+        type_ann: None,
+        is_static: false,
+        decorators: Vec::new(),
+        accessibility: None,
+        is_optional: false,
+        is_override: false,
+        readonly: false,
+        definite: false,
+      }))
+    }
+    for member in &n.body {
+      if let ClassMember::Constructor(ctor) = member {
+        for param in &ctor.params {
+          if let ParamOrTsParamProp::TsParamProp(prop) = param {
+            insert_props.push(ClassMember::ClassProp(ClassProp {
+              span: DUMMY_SP,
+              key: match &prop.param {
+                TsParamPropParam::Ident(ident) => {
+                  PropName::Ident(ident.id.clone())
+                }
+                TsParamPropParam::Assign(assign) => match &*assign.left {
+                  Pat::Ident(ident) => PropName::Ident(ident.id.clone()),
+                  Pat::Array(_) => todo!(),
+                  Pat::Rest(_) => todo!(),
+                  Pat::Object(_) => todo!(),
+                  Pat::Assign(_) => todo!(),
+                  Pat::Invalid(_) => todo!(),
+                  Pat::Expr(_) => todo!(),
+                },
+              },
+              value: None,
+              type_ann: match &prop.param {
+                TsParamPropParam::Ident(ident) => ident.type_ann.clone(),
+                TsParamPropParam::Assign(assign) => assign.type_ann.clone(),
+              },
+              is_static: false,
+              decorators: Vec::new(),
+              accessibility: match prop.accessibility {
+                Some(Accessibility::Public) | None => None,
+                Some(accessibility) => Some(accessibility),
+              },
+              is_abstract: false,
+              is_optional: false,
+              is_override: prop.is_override,
+              readonly: prop.readonly,
+              declare: false,
+              definite: false,
+            }))
+          }
+        }
+      }
+    }
+
+    n.body.splice(0..0, insert_props);
+
     visit_mut_class(self, n)
   }
 
@@ -181,16 +316,23 @@ impl VisitMut for DtsTransformer {
   }
 
   fn visit_mut_class_prop(&mut self, n: &mut ClassProp) {
-    n.value = None;
-    if n.type_ann.is_none() {
+    if n.type_ann.is_none() && n.accessibility != Some(Accessibility::Private) {
+      let type_ann = n
+        .value
+        .as_ref()
+        .and_then(|value| maybe_infer_type_from_expr(value))
+        .unwrap_or_else(|| {
+          TsType::TsKeywordType(TsKeywordType {
+            span: DUMMY_SP,
+            kind: TsKeywordTypeKind::TsUnknownKeyword,
+          })
+        });
       n.type_ann = Some(Box::new(TsTypeAnn {
         span: DUMMY_SP,
-        type_ann: Box::new(TsType::TsKeywordType(TsKeywordType {
-          span: DUMMY_SP,
-          kind: TsKeywordTypeKind::TsUnknownKeyword,
-        })),
-      }));
+        type_ann: Box::new(type_ann),
+      }))
     }
+    n.value = None;
     visit_mut_class_prop(self, n)
   }
 
@@ -200,6 +342,24 @@ impl VisitMut for DtsTransformer {
 
   fn visit_mut_constructor(&mut self, n: &mut Constructor) {
     n.body = None;
+    for param in &mut n.params {
+      match param {
+        ParamOrTsParamProp::TsParamProp(param_prop) => {
+          // convert to a parameter
+          *param = ParamOrTsParamProp::Param(Param {
+            span: param_prop.span,
+            decorators: Vec::new(),
+            pat: match &param_prop.param {
+              TsParamPropParam::Ident(ident) => Pat::Ident(ident.clone()),
+              TsParamPropParam::Assign(assign) => Pat::Assign(assign.clone()),
+            },
+          })
+        }
+        ParamOrTsParamProp::Param(_) => {
+          // ignore
+        }
+      }
+    }
     visit_mut_constructor(self, n)
   }
 
@@ -262,7 +422,7 @@ impl VisitMut for DtsTransformer {
   }
 
   fn visit_mut_function(&mut self, n: &mut Function) {
-    // insert a void type for explicit return types
+    // insert a void type when there's no return type
     if n.return_type.is_none() {
       // todo: this should go into if statements and other things as well
       let is_last_return = n
@@ -348,7 +508,118 @@ impl VisitMut for DtsTransformer {
   }
 
   fn visit_mut_module(&mut self, n: &mut Module) {
-    visit_mut_module(self, n)
+    if self.module_name.is_none() {
+      for item in &mut n.body {
+        if let ModuleItem::Stmt(Stmt::Decl(decl)) = item {
+          match decl {
+            Decl::Class(n) => n.declare = true,
+            Decl::Fn(n) => n.declare = true,
+            Decl::Var(n) => n.declare = true,
+            Decl::TsModule(n) => n.declare = true,
+            Decl::TsInterface(_) | Decl::TsTypeAlias(_) | Decl::TsEnum(_) => {
+              // ignore
+            }
+          }
+        }
+      }
+    }
+
+    let mut insert_decls = Vec::new();
+    for item in &n.body {
+      if let ModuleItem::ModuleDecl(ModuleDecl::Import(import_decl)) = item {
+        if !import_decl.specifiers.is_empty() {
+          let maybe_specifier = self.graph.resolve_dependency(
+            &import_decl.src.value,
+            self.module_specifier,
+            true,
+          );
+          if let Some(specifier) = maybe_specifier {
+            if let Some(module_symbol) = self.module_analyzer.get(&specifier) {
+              let module_id = module_symbol.module_id();
+              for specifier in &import_decl.specifiers {
+                let (id, module_ref) = match specifier {
+                  ImportSpecifier::Named(named) => {
+                    let maybe_symbol = self
+                      .module_symbol
+                      .symbol_id_from_swc(&named.local.to_id())
+                      .and_then(|symbol_id| {
+                        self.module_symbol.symbol(symbol_id)
+                      });
+                    match maybe_symbol {
+                      Some(symbol) if !symbol.is_public() => {
+                        continue;
+                      }
+                      None => {
+                        continue;
+                      }
+                      _ => {}
+                    }
+
+                    (
+                      named.local.clone(),
+                      TsModuleRef::TsEntityName(TsEntityName::TsQualifiedName(
+                        Box::new(TsQualifiedName {
+                          left: TsEntityName::Ident(Ident {
+                            span: DUMMY_SP,
+                            sym: module_id.to_code_string().into(),
+                            optional: false,
+                          }),
+                          right: named
+                            .imported
+                            .as_ref()
+                            .map(|i| match i {
+                              ModuleExportName::Ident(ident) => ident.clone(),
+                              ModuleExportName::Str(_) => todo!(),
+                            })
+                            .unwrap_or_else(|| named.local.clone()),
+                        }),
+                      )),
+                    )
+                  }
+                  ImportSpecifier::Default(_) => todo!(),
+                  ImportSpecifier::Namespace(_) => todo!(),
+                };
+                insert_decls.push(ModuleItem::ModuleDecl(
+                  ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
+                    span: DUMMY_SP,
+                    declare: false,
+                    is_export: false,
+                    is_type_only: false,
+                    id,
+                    module_ref,
+                  })),
+                ));
+              }
+            }
+          }
+        }
+      }
+    }
+
+    n.body.splice(0..0, insert_decls);
+
+    visit_mut_module(self, n);
+
+    if let Some(module_name) = self.module_name.clone() {
+      let module_items = n.body.drain(..).collect::<Vec<_>>();
+      n.body
+        .push(ModuleItem::Stmt(Stmt::Decl(Decl::TsModule(Box::new(
+          TsModuleDecl {
+            span: DUMMY_SP,
+            declare: true,
+            global: false,
+            id: TsModuleName::Ident(Ident {
+              span: DUMMY_SP,
+              sym: module_name.into(),
+              optional: false,
+            }),
+            body: Some(TsNamespaceBody::TsModuleBlock(TsModuleBlock {
+              span: DUMMY_SP,
+              body: module_items,
+            })),
+          },
+        )))));
+    }
   }
 
   fn visit_mut_module_decl(&mut self, n: &mut ModuleDecl) {
@@ -394,7 +665,7 @@ impl VisitMut for DtsTransformer {
       }
     });
     n.retain(|item| {
-      self.ranges.contains(&item.range())
+      item.span() == DUMMY_SP || self.ranges.contains(&item.range())
     });
     visit_mut_module_items(self, n)
   }
@@ -535,5 +806,64 @@ impl VisitMut for SpanAdjuster {
       span.lo = self.start_pos + span.lo;
       span.hi = self.start_pos + span.hi;
     }
+  }
+}
+
+fn maybe_infer_type_from_expr(expr: &Expr) -> Option<TsType> {
+  match expr {
+    Expr::TsTypeAssertion(n) => Some(*n.type_ann.clone()),
+    Expr::TsAs(n) => Some(*n.type_ann.clone()),
+    Expr::Lit(lit) => {
+      let keyword = match lit {
+        Lit::Str(_) => Some(TsKeywordTypeKind::TsStringKeyword),
+        Lit::Bool(_) => Some(TsKeywordTypeKind::TsBooleanKeyword),
+        Lit::Null(_) => Some(TsKeywordTypeKind::TsNullKeyword),
+        Lit::Num(_) => Some(TsKeywordTypeKind::TsNumberKeyword),
+        Lit::BigInt(_) => Some(TsKeywordTypeKind::TsBigIntKeyword),
+        Lit::Regex(_) => None,
+        Lit::JSXText(_) => None,
+      };
+      keyword.map(|kind| {
+        TsType::TsKeywordType(TsKeywordType {
+          span: DUMMY_SP,
+          kind,
+        })
+      })
+    }
+    Expr::This(_)
+    | Expr::Array(_)
+    | Expr::Object(_)
+    | Expr::Fn(_)
+    | Expr::Unary(_)
+    | Expr::Update(_)
+    | Expr::Bin(_)
+    | Expr::Assign(_)
+    | Expr::Member(_)
+    | Expr::SuperProp(_)
+    | Expr::Cond(_)
+    | Expr::Call(_)
+    | Expr::New(_)
+    | Expr::Seq(_)
+    | Expr::Ident(_)
+    | Expr::Tpl(_)
+    | Expr::TaggedTpl(_)
+    | Expr::Arrow(_)
+    | Expr::Class(_)
+    | Expr::Yield(_)
+    | Expr::MetaProp(_)
+    | Expr::Await(_)
+    | Expr::Paren(_)
+    | Expr::JSXMember(_)
+    | Expr::JSXNamespacedName(_)
+    | Expr::JSXEmpty(_)
+    | Expr::JSXElement(_)
+    | Expr::JSXFragment(_)
+    | Expr::TsConstAssertion(_)
+    | Expr::TsNonNull(_)
+    | Expr::TsInstantiation(_)
+    | Expr::TsSatisfies(_)
+    | Expr::PrivateName(_)
+    | Expr::OptChain(_)
+    | Expr::Invalid(_) => None,
   }
 }

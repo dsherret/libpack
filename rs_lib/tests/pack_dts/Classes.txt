@@ -1,7 +1,29 @@
+# other.ts
+export class Other {
+  prop: string = "";
+}
+
 # mod.ts
+import { Other } from "./other.ts";
+
+class SomeClass {
+}
+
+class Dep {
+  prop: string = "";
+  other: Other = new Other();
+}
+
+// test
+/**
+ * My test class
+ */
 export class Test {
-  prop?: string = 5;
+  prop?: string = "test";
   other = 2;
+  // test
+  private myPrivateProp!: string = 2;
+  someDep: Dep = new Dep();
 
   constructor(public readonly text: string) {
     5;
@@ -14,7 +36,7 @@ export class Test {
   protected test(): string {
   }
 
-  private otherMethod() {
+  private otherMethod(): number {
     return 2;
   }
 
@@ -24,10 +46,27 @@ export class Test {
 }
 
 # output.d.ts
-export class Test {
+import Other = pack1.Other
+declare class Dep {
+    prop: string;
+    other: Other;
+}
+/**
+ * My test class
+ */ export class Test {
+    #private;
+    readonly text: string;
     prop?: string;
-    other: unknown;
-    constructor(public readonly text: string);
+    other: number;
+    private myPrivateProp;
+    someDep: Dep;
+    constructor(text: string);
     method(): void;
     protected test(): string;
+    private otherMethod;
+}
+declare module pack1 {
+    export class Other {
+        prop: string;
+    }
 }

@@ -50,7 +50,7 @@ pub async fn pack(options: JsValue) -> Result<JsValue, JsValue> {
 
   let options: PackOptions = serde_wasm_bindgen::from_value(options).unwrap();
   let mut loader = JsLoader::default();
-  match rs_pack(options).await {
+  match rs_pack(options, &mut loader).await {
     Ok(output) => Ok(serde_wasm_bindgen::to_value(&output).unwrap()),
     Err(err) => Err(format!("{:#}", err))?,
   }

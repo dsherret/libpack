@@ -11,6 +11,7 @@ mod integration;
 async fn test_specs() {
   for (test_file_path, spec) in get_specs_in_dir(&PathBuf::from("./tests/pack"))
   {
+    eprintln!("Running {}", test_file_path.display());
     let mut builder = TestBuilder::new();
     builder.with_loader(|loader| {
       for file in &spec.files {
@@ -37,6 +38,7 @@ async fn test_dts_specs() {
   for (test_file_path, spec) in
     get_specs_in_dir(&PathBuf::from("./tests/pack_dts"))
   {
+    eprintln!("Running {}", test_file_path.display());
     let mut builder = TestBuilder::new();
     builder.with_loader(|loader| {
       for file in &spec.files {
