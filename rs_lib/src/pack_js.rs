@@ -232,7 +232,7 @@ pub fn pack(
   while let Some((specifier, _)) = modules.next() {
     let is_file = specifier.scheme() == "file";
     if !options.include_remote && !is_file {
-      // don't analyze any dependenices of remove modules
+      // don't analyze any dependenices of remote modules
       modules.skip_previous_dependencies();
     }
     let module = graph.get(specifier).unwrap();
@@ -316,6 +316,7 @@ pub fn pack(
       // todo: don't clone
       let module_text =
         apply_text_changes(source, module_data.text_changes.clone());
+      eprintln!("HERE: {}", module_text);
       let module_text = if module_data.requires_transpile {
         // todo: warn here and surface parsing errors
         emit_script(&module_text)
@@ -1127,8 +1128,6 @@ impl<'a> TextChangeCollector<'a> {
         self.visit_children(prop.into());
       }
       Node::Constructor(ctor) => {
-        self.visit_children(ctor.into());
-
         // check for any parameter properties
         let has_param_props = ctor
           .params
@@ -1136,6 +1135,8 @@ impl<'a> TextChangeCollector<'a> {
           .any(|p| matches!(p, ParamOrTsParamProp::TsParamProp(_)));
         if has_param_props {
           self.module_data.requires_transpile = true;
+        } else {
+          self.visit_children(ctor.into());
         }
       }
       Node::VarDecl(decl) => {
