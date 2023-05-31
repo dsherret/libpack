@@ -318,7 +318,9 @@ impl<'a> VisitMut for DtsTransformer<'a> {
         .value
         .as_ref()
         .and_then(|value| maybe_infer_type_from_expr(value))
-        .unwrap_or_else(|| unknown_ts_type());
+        .unwrap_or_else(|| {
+          ts_keyword_type(TsKeywordTypeKind::TsUnknownKeyword)
+        });
       n.type_ann = Some(Box::new(TsTypeAnn {
         span: DUMMY_SP,
         type_ann: Box::new(type_ann),
@@ -424,14 +426,16 @@ impl<'a> VisitMut for DtsTransformer<'a> {
         .map(|last_stmt| matches!(last_stmt, Stmt::Return(..)))
         .unwrap_or(false);
 
-      if !is_last_return {
-        // todo: add filename with line and column number
-        eprintln!("Warning: no return type. Using void.");
-      }
+      // todo: add filename with line and column number
+      eprintln!("Warning: no return type.");
 
       n.return_type = Some(Box::new(TsTypeAnn {
         span: DUMMY_SP,
-        type_ann: Box::new(unknown_ts_type()),
+        type_ann: Box::new(if is_last_return {
+          ts_keyword_type(TsKeywordTypeKind::TsUnknownKeyword)
+        } else {
+          ts_keyword_type(TsKeywordTypeKind::TsVoidKeyword)
+        }),
       }));
     }
     n.body = None;
@@ -761,7 +765,27 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                 })),
               ));
             }
-            ExportSpecifier::Namespace(_) => todo!(),
+            ExportSpecifier::Namespace(specifier) => {
+              self.insert_module_items.push(ModuleItem::ModuleDecl(
+                ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
+                  span: DUMMY_SP,
+                  declare: false,
+                  is_export: true,
+                  is_type_only: false,
+                  id: match &specifier.name {
+                    ModuleExportName::Ident(ident) => ident.clone(),
+                    ModuleExportName::Str(_) => todo!(),
+                  },
+                  module_ref: TsModuleRef::TsEntityName(TsEntityName::Ident(
+                    Ident {
+                      span: DUMMY_SP,
+                      sym: src_module_id.to_code_string().into(),
+                      optional: false,
+                    },
+                  )),
+                })),
+              ));
+            }
             ExportSpecifier::Default(_) => todo!(),
           }
         }
@@ -969,9 +993,9 @@ fn maybe_infer_type_from_expr(expr: &Expr) -> Option<TsType> {
   }
 }
 
-fn unknown_ts_type() -> TsType {
+fn ts_keyword_type(kind: TsKeywordTypeKind) -> TsType {
   TsType::TsKeywordType(TsKeywordType {
     span: DUMMY_SP,
-    kind: TsKeywordTypeKind::TsUnknownKeyword,
+    kind,
   })
 }

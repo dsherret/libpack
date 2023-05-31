@@ -8,6 +8,7 @@ use deno_ast::ModuleSpecifier;
 use deno_ast::ParsedSource;
 use deno_ast::SourceRange;
 use deno_ast::SourceRangedForSpanned;
+use indexmap::IndexMap;
 
 #[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct SymbolId(u32);
@@ -67,7 +68,7 @@ impl Symbol {
 pub struct ModuleSymbol {
   module_id: ModuleId,
   next_symbol_id: SymbolId,
-  exports: HashMap<String, SymbolId>,
+  exports: IndexMap<String, SymbolId>,
   // note: not all symbol ids have an swc id. For example, default exports
   swc_id_to_symbol_id: HashMap<Id, SymbolId>,
   symbols: HashMap<SymbolId, Symbol>,
@@ -376,7 +377,21 @@ fn fill_module_item(file_module: &mut ModuleSymbol, module_item: &ModuleItem) {
                 }
               }
             }
-            ExportSpecifier::Namespace(_) => todo!(),
+            ExportSpecifier::Namespace(specifier) => {
+              let name = match &specifier.name {
+                ModuleExportName::Ident(ident) => ident,
+                ModuleExportName::Str(_) => todo!(),
+              };
+              let symbol =
+                file_module.get_symbol_from_swc_id(name.to_id(), n.range());
+              if let Some(src) = &n.src {
+                symbol.file_dep = Some(FileDep {
+                  name: FileDepName::All,
+                  specifier: src.value.to_string(),
+                });
+              }
+              file_module.add_export(name.to_id(), specifier.range());
+            }
             ExportSpecifier::Default(_) => todo!(),
           }
         }

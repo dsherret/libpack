@@ -1,6 +1,3 @@
-use std::collections::HashMap;
-use std::collections::VecDeque;
-
 use anyhow::Result;
 use deno_ast::ModuleSpecifier;
 use deno_graph::CapturingModuleParser;

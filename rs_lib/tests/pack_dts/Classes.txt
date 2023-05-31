@@ -61,7 +61,7 @@ declare class Dep {
     private myPrivateProp;
     someDep: Dep;
     constructor(text: string);
-    method(): void;
+    method(): unknown;
     protected test(): string;
     private otherMethod;
 }
