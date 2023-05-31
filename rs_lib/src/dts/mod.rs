@@ -1,8 +1,5 @@
-use std::collections::HashMap;
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::rc::Rc;
-use std::string::FromUtf8Error;
 
 use deno_ast::swc::ast::*;
 use deno_ast::swc::codegen;
@@ -20,19 +17,17 @@ use deno_ast::swc::common::Spanned;
 use deno_ast::swc::common::DUMMY_SP;
 use deno_ast::swc::visit::*;
 use deno_ast::ModuleSpecifier;
-use deno_ast::SourceMapConfig;
 use deno_ast::SourceRange;
 use deno_ast::SourceRangedForSpanned;
 use deno_graph::CapturingModuleParser;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleParser;
 
-use crate::dts::binder::ModuleAnalyzer;
+use crate::dts::analyzer::ModuleAnalyzer;
 
-use self::binder::ModuleSymbol;
+use self::analyzer::ModuleSymbol;
 
 mod analyzer;
-mod binder;
 mod tracer;
 
 // 1. Do a first analysis pass. Collect all "id"s that should be maintained.
@@ -88,6 +83,7 @@ pub fn pack_dts(
           ranges,
           graph,
           module_analyzer: &module_analyzer,
+          insert_module_items: Default::default(),
         };
         module.visit_mut_with(&mut dts_transformer);
 
@@ -160,6 +156,7 @@ struct DtsTransformer<'a> {
   ranges: HashSet<SourceRange>,
   graph: &'a ModuleGraph,
   module_analyzer: &'a ModuleAnalyzer,
+  insert_module_items: Vec<ModuleItem>,
 }
 
 impl<'a> VisitMut for DtsTransformer<'a> {
@@ -321,12 +318,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
         .value
         .as_ref()
         .and_then(|value| maybe_infer_type_from_expr(value))
-        .unwrap_or_else(|| {
-          TsType::TsKeywordType(TsKeywordType {
-            span: DUMMY_SP,
-            kind: TsKeywordTypeKind::TsUnknownKeyword,
-          })
-        });
+        .unwrap_or_else(|| unknown_ts_type());
       n.type_ann = Some(Box::new(TsTypeAnn {
         span: DUMMY_SP,
         type_ann: Box::new(type_ann),
@@ -439,10 +431,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
 
       n.return_type = Some(Box::new(TsTypeAnn {
         span: DUMMY_SP,
-        type_ann: Box::new(TsType::TsKeywordType(TsKeywordType {
-          span: DUMMY_SP,
-          kind: TsKeywordTypeKind::TsVoidKeyword,
-        })),
+        type_ann: Box::new(unknown_ts_type()),
       }));
     }
     n.body = None;
@@ -636,61 +625,150 @@ impl<'a> VisitMut for DtsTransformer<'a> {
 
   fn visit_mut_module_items(&mut self, n: &mut Vec<ModuleItem>) {
     n.retain(|item| {
-      match item {
-        ModuleItem::ModuleDecl(decl) => {
-          // todo: remove some of these
-          true
-        }
-        ModuleItem::Stmt(stmt) => match stmt {
-          Stmt::Block(_)
-          | Stmt::Empty(_)
-          | Stmt::Debugger(_)
-          | Stmt::With(_)
-          | Stmt::Return(_)
-          | Stmt::Labeled(_)
-          | Stmt::Break(_)
-          | Stmt::Continue(_)
-          | Stmt::If(_)
-          | Stmt::Switch(_)
-          | Stmt::Throw(_)
-          | Stmt::Try(_)
-          | Stmt::While(_)
-          | Stmt::DoWhile(_)
-          | Stmt::For(_)
-          | Stmt::ForIn(_)
-          | Stmt::ForOf(_)
-          | Stmt::Expr(_) => false,
-          Stmt::Decl(_) => true,
-        },
-      }
-    });
-    n.retain(|item| {
       let should_retain =
         item.span() == DUMMY_SP || self.ranges.contains(&item.range());
       if should_retain {
-        true
-      } else {
-        let decl = match item {
-          ModuleItem::ModuleDecl(decl) => {
-            decl.as_export_decl().map(|d| &d.decl)
-          }
-          ModuleItem::Stmt(stmt) => stmt.as_decl(),
-        };
+        return true;
+      }
+      let decl = match item {
+        ModuleItem::ModuleDecl(decl) => decl.as_export_decl().map(|d| &d.decl),
+        ModuleItem::Stmt(stmt) => stmt.as_decl(),
+      };
+      if let Some(decl) = decl {
         // check if any variable declaration individually is traced
         decl
-          .and_then(|d| d.as_var())
+          .as_var()
           .map(|d| {
             d.decls.iter().any(|decl| {
               decl.span() == DUMMY_SP || self.ranges.contains(&decl.range())
             })
           })
           .unwrap_or(false)
+      } else if let ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(named)) =
+        item
+      {
+        named
+          .specifiers
+          .iter()
+          .any(|s| s.span() == DUMMY_SP || self.ranges.contains(&s.range()))
+      } else {
+        false
       }
     });
-    visit_mut_module_items(self, n)
+
+    visit_mut_module_items(self, n);
+    n.retain(|item| {
+      if let ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(export)) = item {
+        if export.specifiers.is_empty() {
+          return false;
+        }
+      }
+      true
+    });
+    n.splice(0..0, self.insert_module_items.drain(..));
+
+    // todo: temporary workaround until https://github.com/microsoft/TypeScript/issues/54446 is fixed
+    let should_insert_ts_under_5_2_workaround = self.module_name.is_some()
+      && n.iter().all(|n| match n {
+        ModuleItem::ModuleDecl(decl) => match decl {
+          ModuleDecl::TsImportEquals(import_equals) => !import_equals.is_export,
+          ModuleDecl::ExportNamed(_) => true,
+          _ => false,
+        },
+        ModuleItem::Stmt(_) => false,
+      });
+    if should_insert_ts_under_5_2_workaround {
+      // for some reason, adding a dummy declaration will fix the error
+      n.push(ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(VarDecl {
+        span: DUMMY_SP,
+        kind: VarDeclKind::Const,
+        declare: false,
+        decls: vec![VarDeclarator {
+          span: DUMMY_SP,
+          name: Pat::Ident(BindingIdent {
+            id: Ident {
+              span: DUMMY_SP,
+              sym: "____packTsUnder5_2_Workaround__".into(),
+              optional: false,
+            },
+            type_ann: Some(Box::new(TsTypeAnn {
+              span: DUMMY_SP,
+              type_ann: Box::new(TsType::TsKeywordType(TsKeywordType {
+                span: DUMMY_SP,
+                kind: TsKeywordTypeKind::TsUnknownKeyword,
+              })),
+            })),
+          }),
+          init: None,
+          definite: false,
+        }],
+      })))))
+    }
   }
 
   fn visit_mut_named_export(&mut self, n: &mut NamedExport) {
+    n.specifiers
+      .retain(|s| s.span() == DUMMY_SP || self.ranges.contains(&s.range()));
+    if let Some(src) = n.src.as_ref().map(|s| s.value.to_string()) {
+      let maybe_src_specifier =
+        self
+          .graph
+          .resolve_dependency(&src, self.module_specifier, true);
+      if let Some(src_specifier) = maybe_src_specifier {
+        let src_module_id = self
+          .module_analyzer
+          .get(&src_specifier)
+          .unwrap()
+          .module_id();
+        for specifier in &mut n.specifiers {
+          match specifier {
+            ExportSpecifier::Named(named) => {
+              self.insert_module_items.push(ModuleItem::ModuleDecl(
+                ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
+                  span: DUMMY_SP,
+                  declare: false,
+                  is_export: true,
+                  is_type_only: false,
+                  id: named
+                    .exported
+                    .as_ref()
+                    .map(|e| match e {
+                      ModuleExportName::Ident(ident) => ident.clone(),
+                      ModuleExportName::Str(_) => todo!(),
+                    })
+                    .clone()
+                    .unwrap_or_else(|| match &named.orig {
+                      ModuleExportName::Ident(ident) => ident.clone(),
+                      ModuleExportName::Str(_) => todo!(),
+                    }),
+                  module_ref: TsModuleRef::TsEntityName(
+                    TsEntityName::TsQualifiedName(Box::new(TsQualifiedName {
+                      left: TsEntityName::Ident(Ident {
+                        span: DUMMY_SP,
+                        sym: src_module_id.to_code_string().into(),
+                        optional: false,
+                      }),
+                      right: Ident {
+                        span: DUMMY_SP,
+                        sym: match &named.orig {
+                          ModuleExportName::Ident(ident) => ident.sym.clone(),
+                          ModuleExportName::Str(_) => todo!(),
+                        },
+                        optional: false,
+                      },
+                    })),
+                  ),
+                })),
+              ));
+            }
+            ExportSpecifier::Namespace(_) => todo!(),
+            ExportSpecifier::Default(_) => todo!(),
+          }
+        }
+        n.specifiers.clear();
+      }
+    }
+    n.src = None;
     visit_mut_named_export(self, n)
   }
 
@@ -889,4 +967,11 @@ fn maybe_infer_type_from_expr(expr: &Expr) -> Option<TsType> {
     | Expr::OptChain(_)
     | Expr::Invalid(_) => None,
   }
+}
+
+fn unknown_ts_type() -> TsType {
+  TsType::TsKeywordType(TsKeywordType {
+    span: DUMMY_SP,
+    kind: TsKeywordTypeKind::TsUnknownKeyword,
+  })
 }

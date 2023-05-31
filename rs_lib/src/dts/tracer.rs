@@ -8,8 +8,8 @@ use deno_graph::ModuleGraph;
 use deno_graph::ModuleParser;
 use indexmap::IndexMap;
 
-use super::binder::FileDepName;
-use super::binder::ModuleAnalyzer;
+use super::analyzer::FileDepName;
+use super::analyzer::ModuleAnalyzer;
 
 enum ExportsToTrace {
   All,

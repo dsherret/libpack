@@ -1,0 +1,39 @@
+# a.ts
+const test1: string = "";
+const test2: number = 3, test3: number = 3;
+const test4: number;
+const test5: number;
+
+export { test1, test2, test3 };
+export { test4, test5 };
+
+# b.ts
+import { test1, test2, test3, test5 } from "./a.ts";
+
+export { test1, test2, test3, test5 }
+
+# c.ts
+export { test1, test2, test5 as test3 } from "./b.ts";
+
+# mod.ts
+export { test1, test3 } from "./c.ts";
+
+# output.d.ts
+declare module pack3 {
+    const test1: string;
+    const test5: number;
+    export { test1 };
+    export { test5 };
+}
+declare module pack2 {
+    import test1 = pack3.test1
+    import test5 = pack3.test5
+    export { test1, test5 };
+    const ____packTsUnder5_2_Workaround__: unknown;
+}
+declare module pack1 {
+    export import test1 = pack2.test1
+    export import test3 = pack2.test5
+}
+export import test1 = pack1.test1
+export import test3 = pack1.test3

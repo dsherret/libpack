@@ -316,7 +316,6 @@ pub fn pack(
       // todo: don't clone
       let module_text =
         apply_text_changes(source, module_data.text_changes.clone());
-      eprintln!("HERE: {}", module_text);
       let module_text = if module_data.requires_transpile {
         // todo: warn here and surface parsing errors
         emit_script(&module_text)
