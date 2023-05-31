@@ -69,6 +69,7 @@ pub struct ModuleSymbol {
   module_id: ModuleId,
   next_symbol_id: SymbolId,
   exports: IndexMap<String, SymbolId>,
+  re_exports: Vec<String>,
   // note: not all symbol ids have an swc id. For example, default exports
   swc_id_to_symbol_id: HashMap<Id, SymbolId>,
   symbols: HashMap<SymbolId, Symbol>,
@@ -92,8 +93,12 @@ impl ModuleSymbol {
     self.exports.values().copied().collect::<Vec<_>>()
   }
 
-  pub fn export_symbol_id(&self, name: &str) -> Option<SymbolId> {
-    self.exports.get(name).copied()
+  pub fn exports(&self) -> &IndexMap<String, SymbolId> {
+    &self.exports
+  }
+
+  pub fn re_exports(&self) -> &Vec<String> {
+    &self.re_exports
   }
 
   pub fn symbol_id_from_swc(&self, id: &Id) -> Option<SymbolId> {
@@ -164,22 +169,34 @@ impl ModuleAnalyzer {
     self.modules.get(specifier.as_str())
   }
 
+  pub fn get_mut(
+    &mut self,
+    specifier: &ModuleSpecifier,
+  ) -> Option<&mut ModuleSymbol> {
+    self.modules.get_mut(specifier.as_str())
+  }
+
   pub fn get_or_analyze(&mut self, source: &ParsedSource) -> &mut ModuleSymbol {
     if !self.modules.contains_key(source.specifier()) {
-      let module = source.module();
-      let mut module_symbol = ModuleSymbol {
-        module_id: ModuleId(self.modules.len()),
-        next_symbol_id: Default::default(),
-        exports: Default::default(),
-        swc_id_to_symbol_id: Default::default(),
-        symbols: Default::default(),
-      };
-      fill_module(&mut module_symbol, module);
-      self
-        .modules
-        .insert(source.specifier().to_string(), module_symbol);
+      self.analyze(source);
     }
     self.modules.get_mut(source.specifier()).unwrap()
+  }
+
+  pub fn analyze(&mut self, source: &ParsedSource) {
+    let module = source.module();
+    let mut module_symbol = ModuleSymbol {
+      module_id: ModuleId(self.modules.len()),
+      next_symbol_id: Default::default(),
+      exports: Default::default(),
+      re_exports: Default::default(),
+      swc_id_to_symbol_id: Default::default(),
+      symbols: Default::default(),
+    };
+    fill_module(&mut module_symbol, module);
+    self
+      .modules
+      .insert(source.specifier().to_string(), module_symbol);
   }
 }
 
@@ -398,7 +415,9 @@ fn fill_module_item(file_module: &mut ModuleSymbol, module_item: &ModuleItem) {
       }
       ModuleDecl::ExportDefaultDecl(_) => todo!(),
       ModuleDecl::ExportDefaultExpr(_) => todo!(),
-      ModuleDecl::ExportAll(_) => todo!(),
+      ModuleDecl::ExportAll(n) => {
+        file_module.re_exports.push(n.src.value.to_string());
+      }
       ModuleDecl::TsImportEquals(_) => todo!(),
       ModuleDecl::TsExportAssignment(_) => todo!(),
       ModuleDecl::TsNamespaceExport(_) => todo!(),

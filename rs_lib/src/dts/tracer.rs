@@ -1,5 +1,8 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 use deno_ast::ModuleSpecifier;
+use deno_ast::ParsedSource;
 use deno_graph::CapturingModuleParser;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleParser;
@@ -7,6 +10,8 @@ use indexmap::IndexMap;
 
 use super::analyzer::FileDepName;
 use super::analyzer::ModuleAnalyzer;
+use super::analyzer::ModuleSymbol;
+use super::analyzer::SymbolId;
 
 enum ExportsToTrace {
   All,
@@ -42,6 +47,95 @@ struct Context<'a> {
   pending_traces: IndexMap<ModuleSpecifier, ExportsToTrace>,
 }
 
+impl<'a> Context<'a> {
+  pub fn parsed_source(
+    &self,
+    specifier: &ModuleSpecifier,
+  ) -> Result<ParsedSource, deno_ast::Diagnostic> {
+    let graph_module = self.graph.get(specifier).unwrap();
+    let graph_module = graph_module.esm().unwrap();
+    self.parser.parse_module(
+      &graph_module.specifier,
+      graph_module.source.clone(),
+      graph_module.media_type,
+    )
+  }
+
+  pub fn get_module_symbol(
+    &mut self,
+    specifier: &ModuleSpecifier,
+  ) -> Result<&ModuleSymbol> {
+    if self.analyzer.get(specifier).is_none() {
+      let parsed_source = self.parsed_source(specifier)?;
+      self.analyzer.analyze(&parsed_source);
+    }
+    Ok(self.analyzer.get(specifier).unwrap())
+  }
+
+  pub fn get_exports(
+    &mut self,
+    specifier: &ModuleSpecifier,
+    exports_to_trace: &ExportsToTrace,
+  ) -> Result<Vec<(ModuleSpecifier, SymbolId)>> {
+    self.get_exports_inner(specifier, exports_to_trace, HashSet::new())
+  }
+
+  fn get_exports_inner(
+    &mut self,
+    specifier: &ModuleSpecifier,
+    exports_to_trace: &ExportsToTrace,
+    visited: HashSet<ModuleSpecifier>,
+  ) -> Result<Vec<(ModuleSpecifier, SymbolId)>> {
+    let mut result = Vec::new();
+    let module_symbol = self.get_module_symbol(specifier)?;
+    match exports_to_trace {
+      ExportsToTrace::All => {
+        result.extend(
+          module_symbol
+            .export_symbols()
+            .into_iter()
+            .map(|s| (specifier.clone(), s)),
+        );
+      }
+      ExportsToTrace::Named(names) => {
+        let exports = module_symbol.exports().clone();
+        let re_exports = module_symbol.re_exports().clone();
+        drop(module_symbol);
+        for name in names {
+          if let Some(symbol_id) = exports.get(name) {
+            result.push((specifier.clone(), symbol_id.clone()));
+          } else {
+            for re_export_specifier in &re_exports {
+              let maybe_specifier = self.graph.resolve_dependency(
+                &re_export_specifier,
+                specifier,
+                /* prefer_types */ true,
+              );
+              if let Some(specifier) = maybe_specifier {
+                let mut found = self.get_exports_inner(
+                  &specifier,
+                  &ExportsToTrace::Named(vec![name.clone()]),
+                  {
+                    let mut visited = visited.clone();
+                    visited.insert(specifier.clone());
+                    visited
+                  },
+                )?;
+                if !found.is_empty() {
+                  assert_eq!(found.len(), 1);
+                  result.push(found.remove(0));
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    Ok(result)
+  }
+}
+
 pub fn trace<'a>(
   graph: &'a ModuleGraph,
   parser: &'a CapturingModuleParser<'a>,
@@ -68,30 +162,16 @@ fn trace_module<'a>(
   context: &mut Context<'a>,
   exports_to_trace: &ExportsToTrace,
 ) -> Result<()> {
-  let graph_module = context.graph.get(specifier).unwrap();
-  let graph_module = graph_module.esm().unwrap();
-  let parsed_source = context.parser.parse_module(
-    &graph_module.specifier,
-    graph_module.source.clone(),
-    graph_module.media_type,
-  )?;
+  let mut pending = context.get_exports(specifier, exports_to_trace)?;
 
-  let module_symbol = context.analyzer.get_or_analyze(&parsed_source);
-  let mut pending_symbol_ids = match exports_to_trace {
-    ExportsToTrace::All => module_symbol.export_symbols(),
-    ExportsToTrace::Named(names) => names
-      .iter()
-      .filter_map(|name| module_symbol.export_symbol_id(name))
-      .collect::<Vec<_>>(),
-  };
-
-  while let Some(symbol_id) = pending_symbol_ids.pop() {
+  while let Some((specifier, symbol_id)) = pending.pop() {
+    let module_symbol = context.analyzer.get_mut(&specifier).unwrap();
     let symbol = module_symbol.symbol_mut(symbol_id).unwrap();
     if symbol.mark_public() {
       if let Some(file_dep) = symbol.file_dep() {
         let maybe_specifier = context.graph.resolve_dependency(
           &file_dep.specifier,
-          specifier,
+          &specifier,
           /* prefer types */ true,
         );
         if let Some(specifier) = maybe_specifier {
@@ -111,9 +191,9 @@ fn trace_module<'a>(
         .swc_dep_ids()
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
-      pending_symbol_ids.extend(ids.iter().filter_map(|id| {
+      pending.extend(ids.iter().filter_map(|id| {
         match module_symbol.symbol_id_from_swc(id) {
-          Some(id) => Some(id),
+          Some(id) => Some((specifier.clone(), id)),
           None => {
             eprintln!("Failed to find symbol id for swc id: {:?}", id);
             None
