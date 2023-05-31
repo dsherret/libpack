@@ -11,12 +11,13 @@ export { test4, test5 };
 export class Test {}
 
 # c.ts
-export * as a from "./a.ts";
-export { Test } from "./b.ts";
-export * as notUsed from "./a.ts";
+import * as a from "./a.ts";
+export { a };
+export * as b from "./b.ts";
+import * as notUsed from "./a.ts";
 
 # mod.ts
-export { Test, a } from "./c.ts";
+export { b, a } from "./c.ts";
 
 # output.d.ts
 declare module pack2 {
@@ -32,8 +33,9 @@ declare module pack3 {
     }
 }
 declare module pack1 {
-    export import a = pack2
-    export import Test = pack3.Test
+    export import b = pack3
+    import a = pack2
+    export { a };
 }
-export import Test = pack1.Test
+export import b = pack1.b
 export import a = pack1.a

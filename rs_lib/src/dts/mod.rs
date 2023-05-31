@@ -570,7 +570,31 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                     )
                   }
                   ImportSpecifier::Default(_) => todo!(),
-                  ImportSpecifier::Namespace(_) => todo!(),
+                  ImportSpecifier::Namespace(specifier) => {
+                    let maybe_symbol = self
+                      .module_symbol
+                      .symbol_id_from_swc(&specifier.local.to_id())
+                      .and_then(|symbol_id| {
+                        self.module_symbol.symbol(symbol_id)
+                      });
+                    match maybe_symbol {
+                      Some(symbol) if !symbol.is_public() => {
+                        continue;
+                      }
+                      None => {
+                        continue;
+                      }
+                      _ => {}
+                    }
+                    (
+                      specifier.local.clone(),
+                      TsModuleRef::TsEntityName(TsEntityName::Ident(Ident {
+                        span: DUMMY_SP,
+                        sym: module_id.to_code_string().into(),
+                        optional: false,
+                      })),
+                    )
+                  }
                 };
                 insert_decls.push(ModuleItem::ModuleDecl(
                   ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
