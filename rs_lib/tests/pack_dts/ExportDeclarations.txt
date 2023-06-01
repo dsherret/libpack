@@ -15,8 +15,11 @@ export { test1, test2, test3, test5 }
 # c.ts
 export { test1, test2, test5 as test3 } from "./b.ts";
 
+import { test1 } from "./b.ts";
+export const test10: typeof test1;
+
 # mod.ts
-export { test1, test3 } from "./c.ts";
+export { test1, test3, test10 } from "./c.ts";
 
 # output.d.ts
 declare module pack3 {
@@ -29,15 +32,19 @@ declare module pack2 {
     import test1 = pack3.test1
     import test5 = pack3.test5
     export { test1, test5 };
-    const ____packTsUnder5_2_Workaround__: unknown;
+    const __packTsUnder5_2_Workaround__: unknown;
 }
 declare module pack1 {
-    export import __pack_re_export_1 = pack2.test1
-    export { __pack_re_export_1 as test1 };
-    export import __pack_re_export_2 = pack2.test5
-    export { __pack_re_export_2 as test3 };
+    export import __export1 = pack2.test1
+    export { __export1 as test1 };
+    export import __export2 = pack2.test5
+    export { __export2 as test3 };
+    import test1 = pack2.test1
+    export const test10: typeof test1;
 }
-export import __pack_re_export_1 = pack1.test1
-export { __pack_re_export_1 as test1 };
-export import __pack_re_export_2 = pack1.test3
-export { __pack_re_export_2 as test3 };
+export import __export1 = pack1.test1
+export { __export1 as test1 };
+export import __export2 = pack1.test3
+export { __export2 as test3 };
+export import __export3 = pack1.test10
+export { __export3 as test10 };

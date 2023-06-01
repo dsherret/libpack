@@ -33,12 +33,12 @@ declare module pack3 {
     }
 }
 declare module pack1 {
-    export import __pack_re_export_1 = pack3
-    export { __pack_re_export_1 as b };
+    export import __export1 = pack3
+    export { __export1 as b };
     import a = pack2
     export { a };
 }
-export import __pack_re_export_1 = pack1.b
-export { __pack_re_export_1 as b };
-export import __pack_re_export_2 = pack1.a
-export { __pack_re_export_2 as a };
+export import __export1 = pack1.b
+export { __export1 as b };
+export import __export2 = pack1.a
+export { __export2 as a };

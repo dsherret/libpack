@@ -545,6 +545,7 @@ fn fill_var_declarator(symbol: &mut Symbol, n: &VarDeclarator) {
   if let Some(init) = &n.init {
     fill_expr(symbol, init);
   }
+  fill_pat(symbol, &n.name);
 }
 
 fn fill_fn_decl(symbol: &mut Symbol, n: &FnDecl) {

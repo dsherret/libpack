@@ -190,7 +190,7 @@ impl<'a> DtsTransformer<'a> {
     // so to work around this, give the export an obscure import name
     // then re-export it with the real name
     self.re_export_index += 1;
-    ReExportName(format!("__pack_re_export_{}", self.re_export_index))
+    ReExportName(format!("__export{}", self.re_export_index))
   }
 }
 
@@ -760,7 +760,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
         decls: vec![VarDeclarator {
           span: DUMMY_SP,
           name: Pat::Ident(BindingIdent {
-            id: ident("____packTsUnder5_2_Workaround__".into()),
+            id: ident("__packTsUnder5_2_Workaround__".into()),
             type_ann: Some(Box::new(TsTypeAnn {
               span: DUMMY_SP,
               type_ann: Box::new(ts_keyword_type(
