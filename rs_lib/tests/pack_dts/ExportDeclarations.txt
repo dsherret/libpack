@@ -32,8 +32,12 @@ declare module pack2 {
     const ____packTsUnder5_2_Workaround__: unknown;
 }
 declare module pack1 {
-    export import test1 = pack2.test1
-    export import test3 = pack2.test5
+    export import __pack_re_export_1 = pack2.test1
+    export { __pack_re_export_1 as test1 };
+    export import __pack_re_export_2 = pack2.test5
+    export { __pack_re_export_2 as test3 };
 }
-export import test1 = pack1.test1
-export import test3 = pack1.test3
+export import __pack_re_export_1 = pack1.test1
+export { __pack_re_export_1 as test1 };
+export import __pack_re_export_2 = pack1.test3
+export { __pack_re_export_2 as test3 };

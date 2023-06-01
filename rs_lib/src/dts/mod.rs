@@ -84,6 +84,7 @@ pub fn pack_dts(
           graph,
           module_analyzer: &module_analyzer,
           insert_module_items: Default::default(),
+          re_export_index: 0,
         };
         module.visit_mut_with(&mut dts_transformer);
 
@@ -149,6 +150,29 @@ pub fn pack_dts(
   Ok(String::from_utf8(buf)?)
 }
 
+struct ReExportName(String);
+
+impl ReExportName {
+  pub fn to_string(&self) -> String {
+    self.0.clone()
+  }
+
+  fn into_module_item(self, export_name: String) -> ModuleItem {
+    ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(NamedExport {
+      span: DUMMY_SP,
+      specifiers: vec![ExportSpecifier::Named(ExportNamedSpecifier {
+        span: DUMMY_SP,
+        orig: ModuleExportName::Ident(ident(self.0)),
+        exported: Some(ModuleExportName::Ident(ident(export_name))),
+        is_type_only: false,
+      })],
+      src: None,
+      type_only: false,
+      asserts: None,
+    }))
+  }
+}
+
 struct DtsTransformer<'a> {
   module_name: Option<String>,
   module_specifier: &'a ModuleSpecifier,
@@ -157,6 +181,17 @@ struct DtsTransformer<'a> {
   graph: &'a ModuleGraph,
   module_analyzer: &'a ModuleAnalyzer,
   insert_module_items: Vec<ModuleItem>,
+  re_export_index: u32,
+}
+
+impl<'a> DtsTransformer<'a> {
+  pub fn next_re_export_name(&mut self) -> ReExportName {
+    // exports should not be available in the scope of their module
+    // so to work around this, give the export an obscure import name
+    // then re-export it with the real name
+    self.re_export_index += 1;
+    ReExportName(format!("__pack_re_export_{}", self.re_export_index))
+  }
 }
 
 impl<'a> VisitMut for DtsTransformer<'a> {
@@ -231,11 +266,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
         span: DUMMY_SP,
         key: PrivateName {
           span: DUMMY_SP,
-          id: Ident {
-            span: DUMMY_SP,
-            sym: "private".into(),
-            optional: false,
-          },
+          id: ident("private".into()),
         },
         value: None,
         type_ann: None,
@@ -552,11 +583,9 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                       named.local.clone(),
                       TsModuleRef::TsEntityName(TsEntityName::TsQualifiedName(
                         Box::new(TsQualifiedName {
-                          left: TsEntityName::Ident(Ident {
-                            span: DUMMY_SP,
-                            sym: module_id.to_code_string().into(),
-                            optional: false,
-                          }),
+                          left: TsEntityName::Ident(ident(
+                            module_id.to_code_string(),
+                          )),
                           right: named
                             .imported
                             .as_ref()
@@ -588,11 +617,9 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                     }
                     (
                       specifier.local.clone(),
-                      TsModuleRef::TsEntityName(TsEntityName::Ident(Ident {
-                        span: DUMMY_SP,
-                        sym: module_id.to_code_string().into(),
-                        optional: false,
-                      })),
+                      TsModuleRef::TsEntityName(TsEntityName::Ident(ident(
+                        module_id.to_code_string(),
+                      ))),
                     )
                   }
                 };
@@ -616,34 +643,26 @@ impl<'a> VisitMut for DtsTransformer<'a> {
     n.body.splice(0..0, insert_decls);
 
     for (name, global_symbol) in self.module_symbol.traced_re_exports() {
+      let private_name = self.next_re_export_name();
       n.body
         .push(ModuleItem::ModuleDecl(ModuleDecl::TsImportEquals(
           Box::new(TsImportEqualsDecl {
             span: DUMMY_SP,
             declare: false,
-            is_export: true,
+            is_export: false,
             is_type_only: false,
-            id: Ident {
-              span: DUMMY_SP,
-              sym: name.clone().into(),
-              optional: false,
-            },
+            id: ident(private_name.to_string()),
             module_ref: TsModuleRef::TsEntityName(
               TsEntityName::TsQualifiedName(Box::new(TsQualifiedName {
-                left: TsEntityName::Ident(Ident {
-                  span: DUMMY_SP,
-                  sym: global_symbol.module_id.to_code_string().into(),
-                  optional: false,
-                }),
-                right: Ident {
-                  span: DUMMY_SP,
-                  sym: name.clone().into(),
-                  optional: false,
-                },
+                left: TsEntityName::Ident(ident(
+                  global_symbol.module_id.to_code_string(),
+                )),
+                right: ident(name.clone()),
               })),
             ),
           }),
-        )))
+        )));
+      n.body.push(private_name.into_module_item(name.clone()));
     }
 
     visit_mut_module(self, n);
@@ -656,11 +675,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
             span: DUMMY_SP,
             declare: true,
             global: false,
-            id: TsModuleName::Ident(Ident {
-              span: DUMMY_SP,
-              sym: module_name.into(),
-              optional: false,
-            }),
+            id: TsModuleName::Ident(ident(module_name.into())),
             body: Some(TsNamespaceBody::TsModuleBlock(TsModuleBlock {
               span: DUMMY_SP,
               body: module_items,
@@ -745,17 +760,12 @@ impl<'a> VisitMut for DtsTransformer<'a> {
         decls: vec![VarDeclarator {
           span: DUMMY_SP,
           name: Pat::Ident(BindingIdent {
-            id: Ident {
-              span: DUMMY_SP,
-              sym: "____packTsUnder5_2_Workaround__".into(),
-              optional: false,
-            },
+            id: ident("____packTsUnder5_2_Workaround__".into()),
             type_ann: Some(Box::new(TsTypeAnn {
               span: DUMMY_SP,
-              type_ann: Box::new(TsType::TsKeywordType(TsKeywordType {
-                span: DUMMY_SP,
-                kind: TsKeywordTypeKind::TsUnknownKeyword,
-              })),
+              type_ann: Box::new(ts_keyword_type(
+                TsKeywordTypeKind::TsUnknownKeyword,
+              )),
             })),
           }),
           init: None,
@@ -782,64 +792,64 @@ impl<'a> VisitMut for DtsTransformer<'a> {
         for specifier in &mut n.specifiers {
           match specifier {
             ExportSpecifier::Named(named) => {
+              let export_name = named
+                .exported
+                .as_ref()
+                .map(|e| match e {
+                  ModuleExportName::Ident(ident) => ident.sym.to_string(),
+                  ModuleExportName::Str(_) => todo!(),
+                })
+                .clone()
+                .unwrap_or_else(|| match &named.orig {
+                  ModuleExportName::Ident(ident) => ident.sym.to_string(),
+                  ModuleExportName::Str(_) => todo!(),
+                });
+              let private_name = self.next_re_export_name();
               self.insert_module_items.push(ModuleItem::ModuleDecl(
                 ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
                   span: DUMMY_SP,
                   declare: false,
                   is_export: true,
                   is_type_only: false,
-                  id: named
-                    .exported
-                    .as_ref()
-                    .map(|e| match e {
-                      ModuleExportName::Ident(ident) => ident.clone(),
-                      ModuleExportName::Str(_) => todo!(),
-                    })
-                    .clone()
-                    .unwrap_or_else(|| match &named.orig {
-                      ModuleExportName::Ident(ident) => ident.clone(),
-                      ModuleExportName::Str(_) => todo!(),
-                    }),
+                  id: ident(private_name.to_string()),
                   module_ref: TsModuleRef::TsEntityName(
                     TsEntityName::TsQualifiedName(Box::new(TsQualifiedName {
-                      left: TsEntityName::Ident(Ident {
-                        span: DUMMY_SP,
-                        sym: src_module_id.to_code_string().into(),
-                        optional: false,
+                      left: TsEntityName::Ident(ident(
+                        src_module_id.to_code_string(),
+                      )),
+                      right: ident(match &named.orig {
+                        ModuleExportName::Ident(ident) => ident.sym.to_string(),
+                        ModuleExportName::Str(_) => todo!(),
                       }),
-                      right: Ident {
-                        span: DUMMY_SP,
-                        sym: match &named.orig {
-                          ModuleExportName::Ident(ident) => ident.sym.clone(),
-                          ModuleExportName::Str(_) => todo!(),
-                        },
-                        optional: false,
-                      },
                     })),
                   ),
                 })),
               ));
+              self
+                .insert_module_items
+                .push(private_name.into_module_item(export_name));
             }
             ExportSpecifier::Namespace(specifier) => {
+              let export_name = match &specifier.name {
+                ModuleExportName::Ident(ident) => ident.sym.to_string(),
+                ModuleExportName::Str(_) => todo!(),
+              };
+              let private_name = self.next_re_export_name();
               self.insert_module_items.push(ModuleItem::ModuleDecl(
                 ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
                   span: DUMMY_SP,
                   declare: false,
                   is_export: true,
                   is_type_only: false,
-                  id: match &specifier.name {
-                    ModuleExportName::Ident(ident) => ident.clone(),
-                    ModuleExportName::Str(_) => todo!(),
-                  },
+                  id: ident(private_name.to_string()),
                   module_ref: TsModuleRef::TsEntityName(TsEntityName::Ident(
-                    Ident {
-                      span: DUMMY_SP,
-                      sym: src_module_id.to_code_string().into(),
-                      optional: false,
-                    },
+                    ident(src_module_id.to_code_string()),
                   )),
                 })),
               ));
+              self
+                .insert_module_items
+                .push(private_name.into_module_item(export_name));
             }
             ExportSpecifier::Default(_) => todo!(),
           }
@@ -1045,6 +1055,14 @@ fn maybe_infer_type_from_expr(expr: &Expr) -> Option<TsType> {
     | Expr::PrivateName(_)
     | Expr::OptChain(_)
     | Expr::Invalid(_) => None,
+  }
+}
+
+fn ident(name: String) -> Ident {
+  Ident {
+    span: DUMMY_SP,
+    sym: name.clone().into(),
+    optional: false,
   }
 }
 
