@@ -10,8 +10,10 @@ use indexmap::IndexMap;
 
 use super::analyzer::FileDepName;
 use super::analyzer::ModuleAnalyzer;
+use super::analyzer::ModuleId;
 use super::analyzer::ModuleSymbol;
 use super::analyzer::SymbolId;
+use super::analyzer::UniqueSymbol;
 
 enum ExportsToTrace {
   All,
@@ -72,38 +74,89 @@ impl<'a> Context<'a> {
     Ok(self.analyzer.get(specifier).unwrap())
   }
 
-  pub fn get_exports(
+  pub fn trace_exports(
     &mut self,
     specifier: &ModuleSpecifier,
     exports_to_trace: &ExportsToTrace,
   ) -> Result<Vec<(ModuleSpecifier, SymbolId)>> {
-    self.get_exports_inner(specifier, exports_to_trace, HashSet::new())
+    let exports =
+      self.trace_exports_inner(specifier, exports_to_trace, HashSet::new())?;
+    let module_symbol = self.analyzer.get_mut(specifier).unwrap();
+    for (export_specifier, module_id, name, symbol_id) in &exports {
+      if specifier != export_specifier {
+        module_symbol.add_traced_re_export(
+          name.clone(),
+          UniqueSymbol {
+            specifier: export_specifier.clone(),
+            module_id: *module_id,
+            symbol_id: *symbol_id,
+          },
+        );
+      }
+    }
+    Ok(
+      exports
+        .into_iter()
+        .map(|(specifier, _module_id, _name, symbol_id)| (specifier, symbol_id))
+        .collect(),
+    )
   }
 
-  fn get_exports_inner(
+  fn trace_exports_inner(
     &mut self,
     specifier: &ModuleSpecifier,
     exports_to_trace: &ExportsToTrace,
     visited: HashSet<ModuleSpecifier>,
-  ) -> Result<Vec<(ModuleSpecifier, SymbolId)>> {
+  ) -> Result<Vec<(ModuleSpecifier, ModuleId, String, SymbolId)>> {
     let mut result = Vec::new();
     let module_symbol = self.get_module_symbol(specifier)?;
     match exports_to_trace {
       ExportsToTrace::All => {
-        result.extend(
-          module_symbol
-            .export_symbols()
-            .into_iter()
-            .map(|s| (specifier.clone(), s)),
-        );
+        let mut found_names = HashSet::new();
+        for (name, symbol_id) in module_symbol.exports() {
+          result.push((
+            specifier.clone(),
+            module_symbol.module_id(),
+            name.clone(),
+            *symbol_id,
+          ));
+          found_names.insert(name.clone());
+        }
+        let re_exports = module_symbol.re_exports().clone();
+        for re_export_specifier in &re_exports {
+          let maybe_specifier = self.graph.resolve_dependency(
+            &re_export_specifier,
+            specifier,
+            /* prefer_types */ true,
+          );
+          if let Some(specifier) = maybe_specifier {
+            let inner =
+              self.trace_exports_inner(&specifier, &ExportsToTrace::All, {
+                let mut visited = visited.clone();
+                visited.insert(specifier.clone());
+                visited
+              })?;
+            for (specifier, module_id, name, symbol_id) in inner {
+              if found_names.insert(name.clone()) {
+                result.push((specifier, module_id, name, symbol_id));
+              }
+            }
+          }
+        }
       }
       ExportsToTrace::Named(names) => {
+        let module_id = module_symbol.module_id();
         let exports = module_symbol.exports().clone();
         let re_exports = module_symbol.re_exports().clone();
         drop(module_symbol);
         for name in names {
           if let Some(symbol_id) = exports.get(name) {
-            result.push((specifier.clone(), symbol_id.clone()));
+            result.push((
+              specifier.clone(),
+              module_id,
+              name.clone(),
+              symbol_id.clone(),
+            ));
           } else {
             for re_export_specifier in &re_exports {
               let maybe_specifier = self.graph.resolve_dependency(
@@ -112,7 +165,7 @@ impl<'a> Context<'a> {
                 /* prefer_types */ true,
               );
               if let Some(specifier) = maybe_specifier {
-                let mut found = self.get_exports_inner(
+                let mut found = self.trace_exports_inner(
                   &specifier,
                   &ExportsToTrace::Named(vec![name.clone()]),
                   {
@@ -162,7 +215,7 @@ fn trace_module<'a>(
   context: &mut Context<'a>,
   exports_to_trace: &ExportsToTrace,
 ) -> Result<()> {
-  let mut pending = context.get_exports(specifier, exports_to_trace)?;
+  let mut pending = context.trace_exports(specifier, exports_to_trace)?;
 
   while let Some((specifier, symbol_id)) = pending.pop() {
     let module_symbol = context.analyzer.get_mut(&specifier).unwrap();

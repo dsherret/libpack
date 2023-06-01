@@ -27,8 +27,8 @@ declare module pack3 {
     }
 }
 declare module pack1 {
-    export import test1 = pack2
     export import Test = pack3.Test
+    export import test1 = pack2.test1
 }
 export import Test = pack1.Test
 export import test1 = pack1.test1

@@ -615,6 +615,37 @@ impl<'a> VisitMut for DtsTransformer<'a> {
 
     n.body.splice(0..0, insert_decls);
 
+    for (name, global_symbol) in self.module_symbol.traced_re_exports() {
+      n.body
+        .push(ModuleItem::ModuleDecl(ModuleDecl::TsImportEquals(
+          Box::new(TsImportEqualsDecl {
+            span: DUMMY_SP,
+            declare: false,
+            is_export: true,
+            is_type_only: false,
+            id: Ident {
+              span: DUMMY_SP,
+              sym: name.clone().into(),
+              optional: false,
+            },
+            module_ref: TsModuleRef::TsEntityName(
+              TsEntityName::TsQualifiedName(Box::new(TsQualifiedName {
+                left: TsEntityName::Ident(Ident {
+                  span: DUMMY_SP,
+                  sym: global_symbol.module_id.to_code_string().into(),
+                  optional: false,
+                }),
+                right: Ident {
+                  span: DUMMY_SP,
+                  sym: name.clone().into(),
+                  optional: false,
+                },
+              })),
+            ),
+          }),
+        )))
+    }
+
     visit_mut_module(self, n);
 
     if let Some(module_name) = self.module_name.clone() {

@@ -65,6 +65,12 @@ impl Symbol {
   }
 }
 
+pub struct UniqueSymbol {
+  pub specifier: ModuleSpecifier,
+  pub module_id: ModuleId,
+  pub symbol_id: SymbolId,
+}
+
 pub struct ModuleSymbol {
   module_id: ModuleId,
   next_symbol_id: SymbolId,
@@ -73,6 +79,7 @@ pub struct ModuleSymbol {
   // note: not all symbol ids have an swc id. For example, default exports
   swc_id_to_symbol_id: HashMap<Id, SymbolId>,
   symbols: HashMap<SymbolId, Symbol>,
+  traced_re_exports: IndexMap<String, UniqueSymbol>,
 }
 
 impl ModuleSymbol {
@@ -89,8 +96,12 @@ impl ModuleSymbol {
       .collect()
   }
 
-  pub fn export_symbols(&self) -> Vec<SymbolId> {
-    self.exports.values().copied().collect::<Vec<_>>()
+  pub fn traced_re_exports(&self) -> &IndexMap<String, UniqueSymbol> {
+    &self.traced_re_exports
+  }
+
+  pub fn add_traced_re_export(&mut self, name: String, symbol: UniqueSymbol) {
+    self.traced_re_exports.insert(name, symbol);
   }
 
   pub fn exports(&self) -> &IndexMap<String, SymbolId> {
@@ -190,6 +201,7 @@ impl ModuleAnalyzer {
       next_symbol_id: Default::default(),
       exports: Default::default(),
       re_exports: Default::default(),
+      traced_re_exports: Default::default(),
       swc_id_to_symbol_id: Default::default(),
       symbols: Default::default(),
     };
