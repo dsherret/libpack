@@ -15,26 +15,30 @@ use super::analyzer::ModuleSymbol;
 use super::analyzer::SymbolId;
 use super::analyzer::UniqueSymbol;
 
+#[derive(Debug)]
 enum ExportsToTrace {
-  All,
+  AllWithDefault,
+  Star,
   Named(Vec<String>),
 }
 
 impl ExportsToTrace {
   pub fn from_file_dep_name(dep_name: &FileDepName) -> Self {
     match dep_name {
-      FileDepName::All => Self::All,
+      FileDepName::Star => Self::Star,
       FileDepName::Name(value) => Self::Named(vec![value.clone()]),
     }
   }
 
   pub fn add(&mut self, name: &FileDepName) {
     match name {
-      FileDepName::All => {
-        *self = ExportsToTrace::All;
+      FileDepName::Star => {
+        if !matches!(self, Self::Star | Self::AllWithDefault) {
+          *self = Self::Star;
+        }
       }
       FileDepName::Name(name) => {
-        if let ExportsToTrace::Named(names) = self {
+        if let Self::Named(names) = self {
           names.push(name.to_string());
         }
       }
@@ -110,17 +114,32 @@ impl<'a> Context<'a> {
   ) -> Result<Vec<(ModuleSpecifier, ModuleId, String, SymbolId)>> {
     let mut result = Vec::new();
     let module_symbol = self.get_module_symbol(specifier)?;
+    if matches!(exports_to_trace, ExportsToTrace::AllWithDefault) {
+      let maybe_symbol_id = module_symbol
+        .default_export_symbol_id()
+        .or_else(|| module_symbol.exports().get("default").copied());
+      if let Some(symbol_id) = maybe_symbol_id {
+        result.push((
+          specifier.clone(),
+          module_symbol.module_id(),
+          "default".to_string(),
+          symbol_id,
+        ));
+      }
+    }
     match exports_to_trace {
-      ExportsToTrace::All => {
+      ExportsToTrace::Star | ExportsToTrace::AllWithDefault => {
         let mut found_names = HashSet::new();
         for (name, symbol_id) in module_symbol.exports() {
-          result.push((
-            specifier.clone(),
-            module_symbol.module_id(),
-            name.clone(),
-            *symbol_id,
-          ));
-          found_names.insert(name.clone());
+          if name != "default" {
+            result.push((
+              specifier.clone(),
+              module_symbol.module_id(),
+              name.clone(),
+              *symbol_id,
+            ));
+            found_names.insert(name.clone());
+          }
         }
         let re_exports = module_symbol.re_exports().clone();
         for re_export_specifier in &re_exports {
@@ -131,13 +150,13 @@ impl<'a> Context<'a> {
           );
           if let Some(specifier) = maybe_specifier {
             let inner =
-              self.trace_exports_inner(&specifier, &ExportsToTrace::All, {
+              self.trace_exports_inner(&specifier, &ExportsToTrace::Star, {
                 let mut visited = visited.clone();
                 visited.insert(specifier.clone());
                 visited
               })?;
             for (specifier, module_id, name, symbol_id) in inner {
-              if found_names.insert(name.clone()) {
+              if name != "default" && found_names.insert(name.clone()) {
                 result.push((specifier, module_id, name, symbol_id));
               }
             }
@@ -148,16 +167,24 @@ impl<'a> Context<'a> {
         let module_id = module_symbol.module_id();
         let exports = module_symbol.exports().clone();
         let re_exports = module_symbol.re_exports().clone();
+        let default_export_symbol_id = module_symbol.default_export_symbol_id();
         drop(module_symbol);
         for name in names {
-          if let Some(symbol_id) = exports.get(name) {
+          if name == "default" && default_export_symbol_id.is_some() {
+            result.push((
+              specifier.clone(),
+              module_id,
+              name.clone(),
+              default_export_symbol_id.unwrap(),
+            ));
+          } else if let Some(symbol_id) = exports.get(name) {
             result.push((
               specifier.clone(),
               module_id,
               name.clone(),
               symbol_id.clone(),
             ));
-          } else {
+          } else if name != "default" {
             for re_export_specifier in &re_exports {
               let maybe_specifier = self.graph.resolve_dependency(
                 &re_export_specifier,
@@ -200,11 +227,14 @@ pub fn trace<'a>(
     analyzer: ModuleAnalyzer::default(),
     pending_traces: IndexMap::from([(
       graph.roots[0].clone(),
-      ExportsToTrace::All,
+      ExportsToTrace::AllWithDefault,
     )]),
   };
   while let Some((specifier, exports_to_trace)) = context.pending_traces.pop() {
+    // eprintln!("ANALYZING: {} {:?}", specifier, exports_to_trace);
     trace_module(&specifier, &mut context, &exports_to_trace)?;
+    // let module_symbol = context.analyzer.get_mut(&specifier).unwrap();
+    // eprintln!("SYMBOL: {:#?}", module_symbol);
   }
 
   Ok(context.analyzer)

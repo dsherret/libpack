@@ -20,4 +20,10 @@ export async function pack(options: PackOptions) {
     output.js,
   );
   await Deno.writeTextFileSync(dtsOutputPath, output.dts);
+  const checkOutput = await new Deno.Command(Deno.execPath(), {
+    args: ["check", "--no-config", dtsOutputPath]
+  }).spawn();
+  if (!await checkOutput.status) {
+    Deno.exit(1);
+  }
 }

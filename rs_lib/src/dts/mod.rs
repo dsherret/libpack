@@ -84,6 +84,7 @@ pub fn pack_dts(
           graph,
           module_analyzer: &module_analyzer,
           insert_module_items: Default::default(),
+          append_module_items: Default::default(),
           re_export_index: 0,
         };
         module.visit_mut_with(&mut dts_transformer);
@@ -181,6 +182,7 @@ struct DtsTransformer<'a> {
   graph: &'a ModuleGraph,
   module_analyzer: &'a ModuleAnalyzer,
   insert_module_items: Vec<ModuleItem>,
+  append_module_items: Vec<ModuleItem>,
   re_export_index: u32,
 }
 
@@ -413,7 +415,33 @@ impl<'a> VisitMut for DtsTransformer<'a> {
   }
 
   fn visit_mut_export_default_expr(&mut self, n: &mut ExportDefaultExpr) {
-    visit_mut_export_default_expr(self, n)
+    if self.module_name.is_some() {
+      match &*n.expr {
+        // convert:
+        //   export default a;
+        // to:
+        //   export { a as __default };
+        Expr::Ident(orig) => self.append_module_items.push(
+          ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(NamedExport {
+            span: DUMMY_SP,
+            specifiers: Vec::from([ExportSpecifier::Named(
+              ExportNamedSpecifier {
+                span: DUMMY_SP,
+                orig: ModuleExportName::Ident(ident(orig.sym.to_string())),
+                exported: Some(ModuleExportName::Ident(ident(
+                  "__default".to_string(),
+                ))),
+                is_type_only: false,
+              },
+            )]),
+            src: None,
+            type_only: false,
+            asserts: None,
+          })),
+        ),
+        _ => {}
+      }
+    }
   }
 
   fn visit_mut_export_default_specifier(
@@ -561,7 +589,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
             if let Some(module_symbol) = self.module_analyzer.get(&specifier) {
               let module_id = module_symbol.module_id();
               for specifier in &import_decl.specifiers {
-                let (id, module_ref) = match specifier {
+                match specifier {
                   ImportSpecifier::Named(named) => {
                     let maybe_symbol = self
                       .module_symbol
@@ -579,26 +607,82 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                       _ => {}
                     }
 
-                    (
-                      named.local.clone(),
-                      TsModuleRef::TsEntityName(TsEntityName::TsQualifiedName(
-                        Box::new(TsQualifiedName {
-                          left: TsEntityName::Ident(ident(
-                            module_id.to_code_string(),
-                          )),
-                          right: named
-                            .imported
-                            .as_ref()
-                            .map(|i| match i {
-                              ModuleExportName::Ident(ident) => ident.clone(),
-                              ModuleExportName::Str(_) => todo!(),
-                            })
-                            .unwrap_or_else(|| named.local.clone()),
-                        }),
+                    let imported_name = named
+                      .imported
+                      .as_ref()
+                      .map(|i| match i {
+                        ModuleExportName::Ident(ident) => ident.sym.to_string(),
+                        ModuleExportName::Str(_) => todo!(),
+                      })
+                      .unwrap_or_else(|| named.local.sym.to_string());
+
+                    insert_decls.push(ModuleItem::ModuleDecl(
+                      ModuleDecl::TsImportEquals(Box::new(
+                        TsImportEqualsDecl {
+                          span: DUMMY_SP,
+                          declare: false,
+                          is_export: false,
+                          is_type_only: false,
+                          id: named.local.clone(),
+                          module_ref: TsModuleRef::TsEntityName(
+                            TsEntityName::TsQualifiedName(Box::new(
+                              TsQualifiedName {
+                                left: TsEntityName::Ident(ident(
+                                  module_id.to_code_string(),
+                                )),
+                                right: ident(if imported_name == "default" {
+                                  "__default".to_string()
+                                } else {
+                                  imported_name
+                                }),
+                              },
+                            )),
+                          ),
+                        },
                       )),
-                    )
+                    ));
                   }
-                  ImportSpecifier::Default(_) => todo!(),
+                  ImportSpecifier::Default(specifier) => {
+                    let maybe_symbol = self
+                      .module_symbol
+                      .symbol_id_from_swc(&specifier.local.to_id())
+                      .and_then(|symbol_id| {
+                        self.module_symbol.symbol(symbol_id)
+                      });
+                    match maybe_symbol {
+                      Some(symbol) if !symbol.is_public() => {
+                        continue;
+                      }
+                      None => {
+                        continue;
+                      }
+                      _ => {}
+                    }
+
+                    insert_decls.push(ModuleItem::ModuleDecl(
+                      ModuleDecl::TsImportEquals(Box::new(
+                        TsImportEqualsDecl {
+                          span: DUMMY_SP,
+                          declare: false,
+                          is_export: false,
+                          is_type_only: false,
+                          id: specifier.local.clone(),
+                          module_ref: TsModuleRef::TsEntityName(
+                            TsEntityName::TsQualifiedName(Box::new(
+                              TsQualifiedName {
+                                left: TsEntityName::Ident(ident(
+                                  module_id.to_code_string(),
+                                )),
+                                // can't use `.default` because it's a reserved word,
+                                // so use our custom `__default` instead
+                                right: ident("__default".to_string()),
+                              },
+                            )),
+                          ),
+                        },
+                      )),
+                    ));
+                  }
                   ImportSpecifier::Namespace(specifier) => {
                     let maybe_symbol = self
                       .module_symbol
@@ -615,24 +699,24 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                       }
                       _ => {}
                     }
-                    (
-                      specifier.local.clone(),
-                      TsModuleRef::TsEntityName(TsEntityName::Ident(ident(
-                        module_id.to_code_string(),
-                      ))),
-                    )
+                    insert_decls.push(ModuleItem::ModuleDecl(
+                      ModuleDecl::TsImportEquals(Box::new(
+                        TsImportEqualsDecl {
+                          span: DUMMY_SP,
+                          declare: false,
+                          is_export: false,
+                          is_type_only: false,
+                          id: specifier.local.clone(),
+                          module_ref: TsModuleRef::TsEntityName(
+                            TsEntityName::Ident(ident(
+                              module_id.to_code_string(),
+                            )),
+                          ),
+                        },
+                      )),
+                    ));
                   }
-                };
-                insert_decls.push(ModuleItem::ModuleDecl(
-                  ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
-                    span: DUMMY_SP,
-                    declare: false,
-                    is_export: false,
-                    is_type_only: false,
-                    id,
-                    module_ref,
-                  })),
-                ));
+                }
               }
             }
           }
@@ -737,9 +821,14 @@ impl<'a> VisitMut for DtsTransformer<'a> {
           return false;
         }
       }
+      if let ModuleItem::ModuleDecl(ModuleDecl::ExportDefaultExpr(_)) = item {
+        // don't keep export default exprs in the namespaces
+        return self.module_name.is_none();
+      }
       true
     });
     n.splice(0..0, self.insert_module_items.drain(..));
+    n.extend(self.append_module_items.drain(..));
 
     // todo: temporary workaround until https://github.com/microsoft/TypeScript/issues/54446 is fixed
     let should_insert_ts_under_5_2_workaround = self.module_name.is_some()
@@ -809,7 +898,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                 ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
                   span: DUMMY_SP,
                   declare: false,
-                  is_export: true,
+                  is_export: false,
                   is_type_only: false,
                   id: ident(private_name.to_string()),
                   module_ref: TsModuleRef::TsEntityName(
@@ -818,7 +907,14 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                         src_module_id.to_code_string(),
                       )),
                       right: ident(match &named.orig {
-                        ModuleExportName::Ident(ident) => ident.sym.to_string(),
+                        ModuleExportName::Ident(ident) => {
+                          let name = ident.sym.to_string();
+                          if name == "default" {
+                            "__default".to_string()
+                          } else {
+                            name
+                          }
+                        }
                         ModuleExportName::Str(_) => todo!(),
                       }),
                     })),
@@ -839,7 +935,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                 ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
                   span: DUMMY_SP,
                   declare: false,
-                  is_export: true,
+                  is_export: false,
                   is_type_only: false,
                   id: ident(private_name.to_string()),
                   module_ref: TsModuleRef::TsEntityName(TsEntityName::Ident(

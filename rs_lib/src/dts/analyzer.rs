@@ -10,11 +10,23 @@ use deno_ast::SourceRange;
 use deno_ast::SourceRangedForSpanned;
 use indexmap::IndexMap;
 
-#[derive(Default, Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Default, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct SymbolId(u32);
 
-#[derive(Debug, Clone, Copy)]
+impl std::fmt::Debug for SymbolId {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "{}", self.0)
+  }
+}
+
+#[derive(Clone, Copy)]
 pub struct ModuleId(usize);
+
+impl std::fmt::Debug for ModuleId {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(f, "pack{}", self.0)
+  }
+}
 
 impl ModuleId {
   pub fn to_code_string(&self) -> String {
@@ -22,20 +34,21 @@ impl ModuleId {
   }
 }
 
+#[derive(Debug)]
 pub enum FileDepName {
-  All,
+  Star,
   Name(String),
 }
 
+#[derive(Debug)]
 pub struct FileDep {
   pub name: FileDepName,
   pub specifier: String,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Symbol {
   // todo: store any implicit types here
-  // todo: store file dependencies here and what export names are used
   is_public: bool,
   decls: Vec<SourceRange>,
   deps: HashSet<Id>,
@@ -65,17 +78,20 @@ impl Symbol {
   }
 }
 
+#[derive(Debug)]
 pub struct UniqueSymbol {
   pub specifier: ModuleSpecifier,
   pub module_id: ModuleId,
   pub symbol_id: SymbolId,
 }
 
+#[derive(Debug)]
 pub struct ModuleSymbol {
   module_id: ModuleId,
   next_symbol_id: SymbolId,
   exports: IndexMap<String, SymbolId>,
   re_exports: Vec<String>,
+  default_export_symbol_id: Option<SymbolId>,
   // note: not all symbol ids have an swc id. For example, default exports
   swc_id_to_symbol_id: HashMap<Id, SymbolId>,
   symbols: HashMap<SymbolId, Symbol>,
@@ -110,6 +126,28 @@ impl ModuleSymbol {
 
   pub fn re_exports(&self) -> &Vec<String> {
     &self.re_exports
+  }
+
+  pub fn default_export_symbol_id(&self) -> Option<SymbolId> {
+    self.default_export_symbol_id.clone()
+  }
+
+  pub fn ensure_default_export_symbol(
+    &mut self,
+    range: SourceRange,
+  ) -> SymbolId {
+    if let Some(symbol_id) = &self.default_export_symbol_id {
+      let default_export_symbol = self.symbols.get_mut(symbol_id).unwrap();
+      default_export_symbol.decls.push(range);
+      *symbol_id
+    } else {
+      let symbol_id = self.get_next_symbol_id();
+      let mut symbol = Symbol::default();
+      symbol.decls.push(range);
+      self.symbols.insert(symbol_id, symbol);
+      self.default_export_symbol_id = Some(symbol_id);
+      symbol_id
+    }
   }
 
   pub fn symbol_id_from_swc(&self, id: &Id) -> Option<SymbolId> {
@@ -187,13 +225,6 @@ impl ModuleAnalyzer {
     self.modules.get_mut(specifier.as_str())
   }
 
-  pub fn get_or_analyze(&mut self, source: &ParsedSource) -> &mut ModuleSymbol {
-    if !self.modules.contains_key(source.specifier()) {
-      self.analyze(source);
-    }
-    self.modules.get_mut(source.specifier()).unwrap()
-  }
-
   pub fn analyze(&mut self, source: &ParsedSource) {
     let module = source.module();
     let mut module_symbol = ModuleSymbol {
@@ -202,6 +233,7 @@ impl ModuleAnalyzer {
       exports: Default::default(),
       re_exports: Default::default(),
       traced_re_exports: Default::default(),
+      default_export_symbol_id: None,
       swc_id_to_symbol_id: Default::default(),
       symbols: Default::default(),
     };
@@ -250,7 +282,7 @@ fn fill_module(file_module: &mut ModuleSymbol, module: &Module) {
             TsModuleName::Ident(ident) => {
               file_module.add_export(ident.to_id(), export_decl.range());
             }
-            TsModuleName::Str(_) => todo!(),
+            TsModuleName::Str(_) => todo!("module id str"),
           },
         },
         ModuleDecl::ExportNamed(_)
@@ -277,29 +309,26 @@ fn fill_module_item(file_module: &mut ModuleSymbol, module_item: &ModuleItem) {
         for specifier in &import_decl.specifiers {
           match specifier {
             ImportSpecifier::Named(n) => {
-              if let Some(imported_name) = &n.imported {
-                match imported_name {
-                  ModuleExportName::Ident(ident) => {
-                    let local_symbol = file_module
-                      .get_symbol_from_swc_id(n.local.to_id(), n.range());
-                    local_symbol.deps.insert(ident.to_id());
-                    let symbol = file_module
-                      .get_symbol_from_swc_id(ident.to_id(), ident.range());
-                    symbol.file_dep = Some(FileDep {
-                      name: FileDepName::Name(ident.sym.to_string()),
-                      specifier: import_decl.src.value.to_string(),
-                    });
-                  }
+              // Don't create a symbol to the exported name identifier
+              // because swc doesn't give that identifier its own ctxt,
+              // which means that `default` in cases like this will have
+              // the same ctxt:
+              //   import { default as a } from '...';
+              //   import { default as b } from '...';
+              let imported_name = n
+                .imported
+                .as_ref()
+                .map(|n| match n {
+                  ModuleExportName::Ident(ident) => ident.sym.to_string(),
                   ModuleExportName::Str(_) => todo!(),
-                }
-              } else {
-                let local_symbol = file_module
-                  .get_symbol_from_swc_id(n.local.to_id(), n.range());
-                local_symbol.file_dep = Some(FileDep {
-                  name: FileDepName::Name(n.local.sym.to_string()),
-                  specifier: import_decl.src.value.to_string(),
-                });
-              }
+                })
+                .unwrap_or_else(|| n.local.sym.to_string());
+              let local_symbol =
+                file_module.get_symbol_from_swc_id(n.local.to_id(), n.range());
+              local_symbol.file_dep = Some(FileDep {
+                name: FileDepName::Name(imported_name),
+                specifier: import_decl.src.value.to_string(),
+              });
             }
             ImportSpecifier::Default(n) => {
               let symbol =
@@ -313,7 +342,7 @@ fn fill_module_item(file_module: &mut ModuleSymbol, module_item: &ModuleItem) {
               let symbol =
                 file_module.get_symbol_from_swc_id(n.local.to_id(), n.range());
               symbol.file_dep = Some(FileDep {
-                name: FileDepName::All,
+                name: FileDepName::Star,
                 specifier: import_decl.src.value.to_string(),
               });
             }
@@ -415,24 +444,39 @@ fn fill_module_item(file_module: &mut ModuleSymbol, module_item: &ModuleItem) {
                 file_module.get_symbol_from_swc_id(name.to_id(), n.range());
               if let Some(src) = &n.src {
                 symbol.file_dep = Some(FileDep {
-                  name: FileDepName::All,
+                  name: FileDepName::Star,
                   specifier: src.value.to_string(),
                 });
               }
               file_module.add_export(name.to_id(), specifier.range());
             }
-            ExportSpecifier::Default(_) => todo!(),
+            ExportSpecifier::Default(_) => todo!("export default specifier"),
           }
         }
       }
-      ModuleDecl::ExportDefaultDecl(_) => todo!(),
-      ModuleDecl::ExportDefaultExpr(_) => todo!(),
+      ModuleDecl::ExportDefaultDecl(_) => todo!("export default decl"),
+      ModuleDecl::ExportDefaultExpr(expr) => {
+        let default_export_symbol_id =
+          file_module.ensure_default_export_symbol(expr.range());
+        match &*expr.expr {
+          Expr::Ident(ident) => {
+            file_module.ensure_symbol_for_swc_id(ident.to_id(), ident.range());
+            file_module
+              .symbol_mut(default_export_symbol_id)
+              .unwrap()
+              .deps
+              .insert(ident.to_id());
+          }
+          // todo: warn here
+          _ => todo!("export default expr"),
+        }
+      }
       ModuleDecl::ExportAll(n) => {
         file_module.re_exports.push(n.src.value.to_string());
       }
-      ModuleDecl::TsImportEquals(_) => todo!(),
-      ModuleDecl::TsExportAssignment(_) => todo!(),
-      ModuleDecl::TsNamespaceExport(_) => todo!(),
+      ModuleDecl::TsImportEquals(_) => todo!("import equals"),
+      ModuleDecl::TsExportAssignment(_) => todo!("export assignment"),
+      ModuleDecl::TsNamespaceExport(_) => todo!("namespace export"),
     },
     ModuleItem::Stmt(stmt) => match stmt {
       Stmt::Block(_)
@@ -513,11 +557,11 @@ impl<'a> Visit for SymbolFillVisitor<'a> {
 
   fn visit_ts_import_type(&mut self, n: &TsImportType) {
     // probably need to have another map for these
-    todo!();
+    todo!("import type");
   }
 
   fn visit_ts_qualified_name(&mut self, n: &TsQualifiedName) {
-    todo!();
+    todo!("qualified name");
   }
 }
 
@@ -542,9 +586,6 @@ fn fill_class(symbol: &mut Symbol, n: &Class) {
 }
 
 fn fill_var_declarator(symbol: &mut Symbol, n: &VarDeclarator) {
-  if let Some(init) = &n.init {
-    fill_expr(symbol, init);
-  }
   fill_pat(symbol, &n.name);
 }
 
@@ -565,14 +606,13 @@ fn fill_function_decl(symbol: &mut Symbol, n: &Function) {
 }
 
 fn fill_ts_interface(symbol: &mut Symbol, n: &TsInterfaceDecl) {
-  todo!()
+  let mut visitor = SymbolFillVisitor { symbol };
+  n.visit_with(&mut visitor);
 }
 
 fn fill_ts_type_alias(symbol: &mut Symbol, n: &TsTypeAliasDecl) {
-  if let Some(type_params) = &n.type_params {
-    fill_ts_type_param_decl(symbol, type_params);
-  }
-  fill_ts_type(symbol, &*n.type_ann);
+  let mut visitor = SymbolFillVisitor { symbol };
+  n.visit_with(&mut visitor);
 }
 
 fn fill_ts_enum(symbol: &mut Symbol, n: &TsEnumDecl) {
@@ -829,9 +869,9 @@ fn fill_private_prop(symbol: &mut Symbol, prop: &PrivateProp) {
 }
 
 fn fill_ts_index_signature(symbol: &mut Symbol, signature: &TsIndexSignature) {
-  todo!()
+  todo!("index signature")
 }
 
 fn fill_auto_accessor(symbol: &mut Symbol, prop: &AutoAccessor) {
-  todo!()
+  todo!("auto accessor")
 }

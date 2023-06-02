@@ -1,0 +1,11 @@
+# mod.ts
+export interface Test<T extends string> {
+  prop: string;
+  method(prop: number): void;
+}
+
+# output.d.ts
+export interface Test<T extends string> {
+    prop: string;
+    method(prop: number): void;
+}
