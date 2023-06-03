@@ -13,6 +13,7 @@ class Dep {
   prop: string = "";
   other: Other = new Other();
 }
+const symbol: Symbol = Symbol("test");
 
 // test
 /**
@@ -27,6 +28,10 @@ export class Test {
 
   constructor(public readonly text: string, public readonly otherProp = true, public a?: string) {
     5;
+  }
+
+  [symbol](): number {
+    return 1;
   }
 
   method(value = true) {
@@ -51,6 +56,7 @@ declare class Dep {
     prop: string;
     other: Other;
 }
+declare const symbol: Symbol;
 /**
  * My test class
  */ export class Test {
@@ -63,6 +69,7 @@ declare class Dep {
     private myPrivateProp;
     someDep: Dep;
     constructor(text: string, otherProp?: boolean, a?: string);
+    [symbol](): number;
     method(value?: boolean): unknown;
     protected test(): string;
     private otherMethod;

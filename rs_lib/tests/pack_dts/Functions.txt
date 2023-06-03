@@ -31,6 +31,18 @@ export function f<TExtras extends ExtrasObject = {}>(
 ) {
 }
 
+export async function g() {
+}
+
+export async function h(): Promise<number> {
+}
+export async function i() {
+  return 5;
+}
+export async function j() {
+  return new NotExists();
+}
+
 # output.d.ts
 export function a(test: string): number;
 export function b(test: string): void;
@@ -45,3 +57,7 @@ interface CreateOptions<T> {
 }
 export function f<TExtras extends ExtrasObject = {
 }>(options?: CreateOptions<TExtras>): void;
+export function g(): Promise<void>;
+export function h(): Promise<number>;
+export function i(): Promise<unknown>;
+export function j(): Promise<unknown>;

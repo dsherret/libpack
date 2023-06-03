@@ -497,16 +497,32 @@ impl<'a> VisitMut for DtsTransformer<'a> {
       // todo: add filename with line and column number
       eprintln!("Warning: no return type.");
 
+      let return_type = Box::new(if is_last_return {
+        ts_keyword_type(TsKeywordTypeKind::TsUnknownKeyword)
+      } else {
+        ts_keyword_type(TsKeywordTypeKind::TsVoidKeyword)
+      });
       n.return_type = Some(Box::new(TsTypeAnn {
         span: DUMMY_SP,
-        type_ann: Box::new(if is_last_return {
-          ts_keyword_type(TsKeywordTypeKind::TsUnknownKeyword)
+        type_ann: if n.is_async {
+          Box::new(TsType::TsTypeRef(TsTypeRef {
+            span: DUMMY_SP,
+            type_name: TsEntityName::Ident(Ident::new(
+              "Promise".into(),
+              DUMMY_SP,
+            )),
+            type_params: Some(Box::new(TsTypeParamInstantiation {
+              span: DUMMY_SP,
+              params: vec![return_type],
+            })),
+          }))
         } else {
-          ts_keyword_type(TsKeywordTypeKind::TsVoidKeyword)
-        }),
+          return_type
+        },
       }));
     }
     n.body = None;
+    n.is_async = false;
     visit_mut_function(self, n)
   }
 

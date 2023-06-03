@@ -791,6 +791,7 @@ fn fill_ctor(symbol: &mut Symbol, ctor: &Constructor) {
 }
 
 fn fill_method(symbol: &mut Symbol, method: &ClassMethod) {
+  fill_prop_name(symbol, &method.key);
   if let Some(type_params) = &method.function.type_params {
     fill_ts_type_param_decl(symbol, type_params)
   }
@@ -799,6 +800,20 @@ fn fill_method(symbol: &mut Symbol, method: &ClassMethod) {
   }
   if let Some(return_type) = &method.function.return_type {
     fill_ts_type_ann(symbol, return_type)
+  }
+}
+
+fn fill_prop_name(symbol: &mut Symbol, key: &PropName) {
+  match key {
+    PropName::Computed(name) => {
+      fill_expr(symbol, &name.expr);
+    }
+    PropName::Ident(_)
+    | PropName::Str(_)
+    | PropName::Num(_)
+    | PropName::BigInt(_) => {
+      // ignore
+    }
   }
 }
 
