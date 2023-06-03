@@ -15,8 +15,12 @@ export function c(test?: string) {
 
 export function d<const T extends 5>(): T {}
 
+export function e(other = true) {
+}
+
 # output.d.ts
 export function a(test: string): number;
 export function b(test: string): void;
 export function c(test?: string): unknown;
 export function d<const T extends 5>(): T;
+export function e(other?: boolean): void;

@@ -25,11 +25,11 @@ export class Test {
   private myPrivateProp!: string = 2;
   someDep: Dep = new Dep();
 
-  constructor(public readonly text: string) {
+  constructor(public readonly text: string, public readonly otherProp = true, public a?: string) {
     5;
   }
 
-  method() {
+  method(value = true) {
     return 2;
   }
 
@@ -56,12 +56,14 @@ declare class Dep {
  */ export class Test {
     #private;
     readonly text: string;
+    readonly otherProp: boolean;
+    a?: string;
     prop?: string;
     other: number;
     private myPrivateProp;
     someDep: Dep;
-    constructor(text: string);
-    method(): unknown;
+    constructor(text: string, otherProp?: boolean, a?: string);
+    method(value?: boolean): unknown;
     protected test(): string;
     private otherMethod;
 }

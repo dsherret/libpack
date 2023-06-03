@@ -570,7 +570,7 @@ impl<'a> Visit for SymbolFillVisitor<'a> {
   }
 
   fn visit_ts_qualified_name(&mut self, n: &TsQualifiedName) {
-    todo!("qualified name");
+    // todo!("qualified name");
   }
 }
 

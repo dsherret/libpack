@@ -1,5 +1,5 @@
 {
   "tasks": {
-    "wasmbuild": "deno run -A https://deno.land/x/wasmbuild@0.11.1/main.ts --skip-opt"
+    "wasmbuild": "deno run -A https://deno.land/x/wasmbuild@0.14.1/main.ts --skip-opt"
   }
 }

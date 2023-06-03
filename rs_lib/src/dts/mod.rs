@@ -304,7 +304,16 @@ impl<'a> VisitMut for DtsTransformer<'a> {
               value: None,
               type_ann: match &prop.param {
                 TsParamPropParam::Ident(ident) => ident.type_ann.clone(),
-                TsParamPropParam::Assign(assign) => assign.type_ann.clone(),
+                TsParamPropParam::Assign(assign) => {
+                  assign.type_ann.clone().or_else(|| {
+                    maybe_infer_type_from_expr(&*assign.right).map(|type_ann| {
+                      Box::new(TsTypeAnn {
+                        span: DUMMY_SP,
+                        type_ann: Box::new(type_ann),
+                      })
+                    })
+                  })
+                }
               },
               is_static: false,
               decorators: Vec::new(),
@@ -1081,6 +1090,34 @@ impl<'a> VisitMut for DtsTransformer<'a> {
 
   fn visit_mut_var_declarators(&mut self, n: &mut Vec<VarDeclarator>) {
     visit_mut_var_declarators(self, n)
+  }
+
+  fn visit_mut_pat(&mut self, n: &mut Pat) {
+    match &n {
+      Pat::Assign(assign) => {
+        if let Pat::Ident(name) = &*assign.left {
+          let name = name.sym.to_string();
+          let type_ann = assign.type_ann.clone().or_else(|| {
+            maybe_infer_type_from_expr(&*assign.right).map(|type_ann| {
+              Box::new(TsTypeAnn {
+                span: DUMMY_SP,
+                type_ann: Box::new(type_ann),
+              })
+            })
+          });
+          *n = Pat::Ident(BindingIdent {
+            id: Ident {
+              span: DUMMY_SP,
+              sym: name.into(),
+              optional: true,
+            },
+            type_ann,
+          });
+        }
+      }
+      _ => {}
+    }
+    visit_mut_pat(self, n)
   }
 }
 
