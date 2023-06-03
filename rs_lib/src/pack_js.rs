@@ -614,6 +614,7 @@ fn analyze_esm_module(
                   },
                 );
               }
+              Decl::Using(_) => {}
               Decl::Fn(decl) => {
                 if decl.declare() {
                   continue;
@@ -860,15 +861,15 @@ fn analyze_esm_module(
   Ok(())
 }
 
-struct TextChangeCollector<'a> {
-  module_data: &'a mut ModuleData,
-  replace_ids: &'a HashMap<Id, String>,
-  module: &'a Module<'a>,
+struct TextChangeCollector<'a, 'b> {
+  module_data: &'b mut ModuleData,
+  replace_ids: &'b HashMap<Id, String>,
+  module: &'b Module<'a>,
   file_start: StartSourcePos,
   is_root_module: bool,
 }
 
-impl<'a> TextChangeCollector<'a> {
+impl<'a, 'b> TextChangeCollector<'a, 'b> {
   fn remove_range(&mut self, source_range: SourceRange) {
     self
       .module_data
@@ -1044,6 +1045,7 @@ impl<'a> TextChangeCollector<'a> {
               self.visit(child.into());
             }
           }
+          Decl::Using(_) => unreachable!(),
         }
       }
       Node::ExportAll(_)
@@ -1235,6 +1237,7 @@ impl<'a> TextChangeCollector<'a> {
       | Node::TplElement(_)
       | Node::TryStmt(_)
       | Node::UnaryExpr(_)
+      | Node::UsingDecl(_)
       | Node::UpdateExpr(_)
       | Node::VarDeclarator(_)
       | Node::WhileStmt(_)

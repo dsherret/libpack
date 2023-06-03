@@ -46,7 +46,7 @@ export class Test {
 }
 
 # output.d.ts
-import Other = pack1.Other
+import Other = pack1.Other;
 declare class Dep {
     prop: string;
     other: Other;

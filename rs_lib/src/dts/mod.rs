@@ -568,7 +568,10 @@ impl<'a> VisitMut for DtsTransformer<'a> {
             Decl::Fn(n) => n.declare = true,
             Decl::Var(n) => n.declare = true,
             Decl::TsModule(n) => n.declare = true,
-            Decl::TsInterface(_) | Decl::TsTypeAlias(_) | Decl::TsEnum(_) => {
+            Decl::Using(_)
+            | Decl::TsInterface(_)
+            | Decl::TsTypeAlias(_)
+            | Decl::TsEnum(_) => {
               // ignore
             }
           }
@@ -1066,8 +1069,8 @@ impl<'a> VisitMut for DtsTransformer<'a> {
     visit_mut_var_decl_or_expr(self, n)
   }
 
-  fn visit_mut_var_decl_or_pat(&mut self, n: &mut VarDeclOrPat) {
-    visit_mut_var_decl_or_pat(self, n)
+  fn visit_mut_for_head(&mut self, n: &mut ForHead) {
+    visit_mut_for_head(self, n)
   }
 
   fn visit_mut_var_declarator(&mut self, n: &mut VarDeclarator) {

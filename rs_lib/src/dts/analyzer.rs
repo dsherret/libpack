@@ -284,6 +284,9 @@ fn fill_module(file_module: &mut ModuleSymbol, module: &Module) {
             }
             TsModuleName::Str(_) => todo!("module id str"),
           },
+          Decl::Using(_) => {
+            unreachable!()
+          }
         },
         ModuleDecl::ExportNamed(_)
         | ModuleDecl::ExportDefaultDecl(_)
@@ -386,6 +389,9 @@ fn fill_module_item(file_module: &mut ModuleSymbol, module_item: &ModuleItem) {
         }
         Decl::TsModule(n) => {
           fill_ts_module(file_module, export_decl.range(), n)
+        }
+        Decl::Using(_) => {
+          unreachable!()
         }
       },
       ModuleDecl::ExportNamed(n) => {
@@ -538,6 +544,9 @@ fn fill_module_item(file_module: &mut ModuleSymbol, module_item: &ModuleItem) {
           }
           Decl::TsModule(n) => {
             fill_ts_module(file_module, n.range(), n);
+          }
+          Decl::Using(_) => {
+            // ignore
           }
         };
       }
@@ -702,6 +711,9 @@ fn fill_ts_module(
               }
               TsModuleName::Str(_) => todo!(),
             },
+            Decl::Using(_) => {
+              // ignore
+            }
           },
         },
         ModuleItem::Stmt(_) => {

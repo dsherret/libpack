@@ -32,13 +32,13 @@ declare module pack3 {
     }
 }
 declare module pack1 {
-    import __export1 = pack2
+    import __export1 = pack2;
     export { __export1 as a };
-    import __export2 = pack3.Test
+    import __export2 = pack3.Test;
     export { __export2 as Test };
     const __packTsUnder5_2_Workaround__: unknown;
 }
-import __export1 = pack1.Test
+import __export1 = pack1.Test;
 export { __export1 as Test };
-import __export2 = pack1.a
+import __export2 = pack1.a;
 export { __export2 as a };
