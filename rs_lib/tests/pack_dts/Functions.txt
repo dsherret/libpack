@@ -45,8 +45,9 @@ export async function j() {
 export async function* k(
   a: number,
   {
-    maxDepth = Infinity,
-    other = 5,
+    b = Infinity,
+    c = 5,
+    d: dOption = true,
   }: WalkOptions = {},
 ): AsyncIterableIterator<string> {
 }
@@ -72,5 +73,5 @@ export function g(): Promise<void>;
 export function h(): Promise<number>;
 export function i(): Promise<unknown>;
 export function j(): Promise<unknown>;
-export function k(a: number, { maxDepth , other  }?: WalkOptions): AsyncIterableIterator<string>;
+export function k(a: number, { b , c , d  }?: WalkOptions): AsyncIterableIterator<string>;
 export function l(): Generator<unknown, void, unknown>;

@@ -1176,6 +1176,24 @@ impl<'a> VisitMut for DtsTransformer<'a> {
   }
 
   fn visit_mut_object_pat(&mut self, n: &mut ObjectPat) {
+    for prop in &mut n.props {
+      match prop {
+        ObjectPatProp::KeyValue(kv) => {
+          *prop = ObjectPatProp::Assign(AssignPatProp {
+            span: kv.span(),
+            key: match &kv.key {
+              PropName::Ident(ident) => ident.clone(),
+              PropName::Str(_)
+              | PropName::Num(_)
+              | PropName::Computed(_)
+              | PropName::BigInt(_) => todo!("Non ident prop name"),
+            },
+            value: None,
+          });
+        }
+        ObjectPatProp::Assign(_) | ObjectPatProp::Rest(_) => {}
+      }
+    }
     visit_mut_object_pat(self, n)
   }
 
