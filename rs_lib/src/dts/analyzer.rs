@@ -844,6 +844,8 @@ fn fill_pat(symbol: &mut Symbol, pat: &Pat) {
       }
     }
     Pat::Assign(n) => {
+      fill_pat(symbol, &n.left);
+      // this will always be none (https://github.com/swc-project/swc/issues/7487)
       if let Some(type_ann) = &n.type_ann {
         fill_ts_type_ann(symbol, type_ann);
       }

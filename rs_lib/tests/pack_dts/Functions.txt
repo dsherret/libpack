@@ -18,9 +18,30 @@ export function d<const T extends 5>(): T {}
 export function e(other = true) {
 }
 
+interface ExtrasObject {
+  prop: string;
+}
+
+interface CreateOptions<T> {
+  extras: T;
+}
+
+export function f<TExtras extends ExtrasObject = {}>(
+  options: CreateOptions<TExtras> = {},
+) {
+}
+
 # output.d.ts
 export function a(test: string): number;
 export function b(test: string): void;
 export function c(test?: string): unknown;
 export function d<const T extends 5>(): T;
 export function e(other?: boolean): void;
+interface ExtrasObject {
+    prop: string;
+}
+interface CreateOptions<T> {
+    extras: T;
+}
+export function f<TExtras extends ExtrasObject = {
+}>(options?: CreateOptions<TExtras>): void;

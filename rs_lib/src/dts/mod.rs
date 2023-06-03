@@ -1096,8 +1096,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
     match &n {
       Pat::Assign(assign) => {
         if let Pat::Ident(name) = &*assign.left {
-          let name = name.sym.to_string();
-          let type_ann = assign.type_ann.clone().or_else(|| {
+          let type_ann = name.type_ann.clone().or_else(|| {
             maybe_infer_type_from_expr(&*assign.right).map(|type_ann| {
               Box::new(TsTypeAnn {
                 span: DUMMY_SP,
@@ -1108,7 +1107,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
           *n = Pat::Ident(BindingIdent {
             id: Ident {
               span: DUMMY_SP,
-              sym: name.into(),
+              sym: name.sym.to_string().into(),
               optional: true,
             },
             type_ann,
