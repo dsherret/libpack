@@ -516,6 +516,22 @@ impl<'a> VisitMut for DtsTransformer<'a> {
               params: vec![return_type],
             })),
           }))
+        } else if n.is_generator {
+          Box::new(TsType::TsTypeRef(TsTypeRef {
+            span: DUMMY_SP,
+            type_name: TsEntityName::Ident(Ident::new(
+              "Generator".into(),
+              DUMMY_SP,
+            )),
+            type_params: Some(Box::new(TsTypeParamInstantiation {
+              span: DUMMY_SP,
+              params: vec![
+                Box::new(ts_keyword_type(TsKeywordTypeKind::TsUnknownKeyword)),
+                Box::new(ts_keyword_type(TsKeywordTypeKind::TsVoidKeyword)),
+                Box::new(ts_keyword_type(TsKeywordTypeKind::TsUnknownKeyword)),
+              ],
+            })),
+          }))
         } else {
           return_type
         },
@@ -523,6 +539,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
     }
     n.body = None;
     n.is_async = false;
+    n.is_generator = false;
     visit_mut_function(self, n)
   }
 
@@ -1109,30 +1126,62 @@ impl<'a> VisitMut for DtsTransformer<'a> {
   }
 
   fn visit_mut_pat(&mut self, n: &mut Pat) {
+    fn pat_type_ann(pat: &Pat) -> Option<Box<TsTypeAnn>> {
+      match pat {
+        Pat::Ident(left) => left.type_ann.clone(),
+        Pat::Array(left) => left.type_ann.clone(),
+        Pat::Rest(left) => left.type_ann.clone(),
+        Pat::Object(left) => left.type_ann.clone(),
+        Pat::Assign(left) => pat_type_ann(&left.left),
+        Pat::Invalid(_) | Pat::Expr(_) => None,
+      }
+    }
+
     match &n {
       Pat::Assign(assign) => {
-        if let Pat::Ident(name) = &*assign.left {
-          let type_ann = name.type_ann.clone().or_else(|| {
-            maybe_infer_type_from_expr(&*assign.right).map(|type_ann| {
-              Box::new(TsTypeAnn {
-                span: DUMMY_SP,
-                type_ann: Box::new(type_ann),
-              })
-            })
-          });
-          *n = Pat::Ident(BindingIdent {
-            id: Ident {
+        let type_ann = pat_type_ann(&assign.left).clone().or_else(|| {
+          maybe_infer_type_from_expr(&*assign.right).map(|type_ann| {
+            Box::new(TsTypeAnn {
               span: DUMMY_SP,
-              sym: name.sym.to_string().into(),
+              type_ann: Box::new(type_ann),
+            })
+          })
+        });
+        match &*assign.left {
+          Pat::Ident(name) => {
+            *n = Pat::Ident(BindingIdent {
+              id: Ident {
+                span: DUMMY_SP,
+                sym: name.sym.to_string().into(),
+                optional: true,
+              },
+              type_ann,
+            });
+          }
+          Pat::Object(obj) => {
+            *n = Pat::Object(ObjectPat {
+              span: DUMMY_SP,
               optional: true,
-            },
-            type_ann,
-          });
+              type_ann,
+              props: obj.props.clone(),
+            });
+          }
+          _ => {}
         }
       }
       _ => {}
     }
+
     visit_mut_pat(self, n)
+  }
+
+  fn visit_mut_object_pat(&mut self, n: &mut ObjectPat) {
+    visit_mut_object_pat(self, n)
+  }
+
+  fn visit_mut_assign_pat_prop(&mut self, n: &mut AssignPatProp) {
+    n.value = None;
+    visit_mut_assign_pat_prop(self, n)
   }
 }
 

@@ -48,6 +48,9 @@ export class Test {
   #test() {
     return 1;
   }
+
+  bytes(options?: { copy?: boolean }): Uint8Array {
+  }
 }
 
 # output.d.ts
@@ -73,6 +76,9 @@ declare const symbol: Symbol;
     method(value?: boolean): unknown;
     protected test(): string;
     private otherMethod;
+    bytes(options?: {
+        copy?: boolean;
+    }): Uint8Array;
 }
 declare module pack1 {
     export class Other {
