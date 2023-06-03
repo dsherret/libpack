@@ -8,6 +8,8 @@ use deno_graph::ModuleGraph;
 use deno_graph::ModuleParser;
 use indexmap::IndexMap;
 
+use crate::console_log;
+
 use super::analyzer::FileDepName;
 use super::analyzer::ModuleAnalyzer;
 use super::analyzer::ModuleId;
@@ -72,6 +74,7 @@ impl<'a> Context<'a> {
     specifier: &ModuleSpecifier,
   ) -> Result<&ModuleSymbol> {
     if self.analyzer.get(specifier).is_none() {
+      console_log!("Analyzing: {}", specifier);
       let parsed_source = self.parsed_source(specifier)?;
       self.analyzer.analyze(&parsed_source);
     }

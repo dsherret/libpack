@@ -4,6 +4,10 @@ import * as path from "https://deno.land/std@0.188.0/path/mod.ts";
 export interface PackOptions {
   entryPoint: string;
   outputPath: string;
+  /** Whether to type check the outputted declaration file.
+   * Defaults to `true`.
+   */
+  typeCheck: boolean;
 }
 
 export async function pack(options: PackOptions) {
@@ -20,10 +24,12 @@ export async function pack(options: PackOptions) {
     output.js,
   );
   await Deno.writeTextFileSync(dtsOutputPath, output.dts);
-  const checkOutput = await new Deno.Command(Deno.execPath(), {
-    args: ["check", "--no-config", dtsOutputPath]
-  }).spawn();
-  if (!await checkOutput.status) {
-    Deno.exit(1);
+  if (options.typeCheck ?? true) {
+    const checkOutput = await new Deno.Command(Deno.execPath(), {
+      args: ["check", "--no-config", dtsOutputPath]
+    }).spawn();
+    if (!await checkOutput.status) {
+      Deno.exit(1);
+    }
   }
 }

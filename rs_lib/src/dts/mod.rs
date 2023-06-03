@@ -17,14 +17,18 @@ use deno_ast::swc::common::Spanned;
 use deno_ast::swc::common::DUMMY_SP;
 use deno_ast::swc::visit::*;
 use deno_ast::ModuleSpecifier;
+use deno_ast::ParsedSource;
+use deno_ast::SourcePos;
 use deno_ast::SourceRange;
 use deno_ast::SourceRangedForSpanned;
 use deno_graph::CapturingModuleParser;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleParser;
 
+use crate::console_log;
 use crate::dts::analyzer::ModuleAnalyzer;
 
+use self::analyzer::has_internal_jsdoc;
 use self::analyzer::ModuleSymbol;
 
 mod analyzer;
@@ -51,9 +55,10 @@ pub fn pack_dts(
   };
 
   for graph_module in graph.modules() {
+    console_log!("Module: {}", graph_module.specifier());
     if let Some(module_symbol) = module_analyzer.get(graph_module.specifier()) {
       let ranges = module_symbol.public_source_ranges();
-      if !ranges.is_empty() {
+      if !ranges.is_empty() || !module_symbol.traced_re_exports().is_empty() {
         let graph_module = graph_module.esm().unwrap();
         // todo: consolidate with other code that does this
         let parsed_source = parser.parse_module(
@@ -80,6 +85,7 @@ pub fn pack_dts(
           module_name,
           module_specifier: &graph_module.specifier,
           module_symbol,
+          parsed_source: &parsed_source,
           ranges,
           graph,
           module_analyzer: &module_analyzer,
@@ -178,6 +184,7 @@ struct DtsTransformer<'a> {
   module_name: Option<String>,
   module_specifier: &'a ModuleSpecifier,
   module_symbol: &'a ModuleSymbol,
+  parsed_source: &'a ParsedSource,
   ranges: HashSet<SourceRange>,
   graph: &'a ModuleGraph,
   module_analyzer: &'a ModuleAnalyzer,
@@ -193,6 +200,10 @@ impl<'a> DtsTransformer<'a> {
     // then re-export it with the real name
     self.re_export_index += 1;
     ReExportName(format!("__export{}", self.re_export_index))
+  }
+
+  fn has_internal_jsdoc(&self, pos: SourcePos) -> bool {
+    has_internal_jsdoc(self.parsed_source, pos)
   }
 }
 
@@ -220,16 +231,19 @@ impl<'a> VisitMut for DtsTransformer<'a> {
         ClassMember::PrivateProp(_) | ClassMember::PrivateMethod(_)
       )
     });
-    n.body.retain(|member| match member {
-      ClassMember::Constructor(_)
-      | ClassMember::Method(_)
-      | ClassMember::ClassProp(_)
-      | ClassMember::TsIndexSignature(_) => true,
-      ClassMember::PrivateProp(_)
-      | ClassMember::PrivateMethod(_)
-      | ClassMember::Empty(_)
-      | ClassMember::StaticBlock(_) => false,
-      ClassMember::AutoAccessor(_) => true,
+    n.body.retain(|member| {
+      let keep = match member {
+        ClassMember::Constructor(_)
+        | ClassMember::Method(_)
+        | ClassMember::ClassProp(_)
+        | ClassMember::TsIndexSignature(_) => true,
+        ClassMember::PrivateProp(_)
+        | ClassMember::PrivateMethod(_)
+        | ClassMember::Empty(_)
+        | ClassMember::StaticBlock(_) => false,
+        ClassMember::AutoAccessor(_) => true,
+      };
+      keep && !self.has_internal_jsdoc(member.start())
     });
 
     for member in n.body.iter_mut() {

@@ -1,0 +1,19 @@
+# a.ts
+export class OtherClass {}
+
+export class Test {
+  /** @internal */
+  method(): OtherClass {
+  }
+}
+
+# mod.ts
+export { Test } from "./a.ts";
+
+# output.d.ts
+declare module pack1 {
+    export class Test {
+    }
+}
+import __export1 = pack1.Test;
+export { __export1 as Test };

@@ -18,6 +18,23 @@ extern "C" {
 }
 
 #[cfg(target_arch = "wasm32")]
+#[wasm_bindgen]
+extern "C" {
+  #[wasm_bindgen(js_namespace = console, js_name = error)]
+  pub fn log(s: &str);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn log(s: &str) {
+  eprintln!("{}", s);
+}
+
+#[macro_export]
+macro_rules! console_log {
+  ($($t:tt)*) => ($crate::log(&format_args!($($t)*).to_string()))
+}
+
+#[cfg(target_arch = "wasm32")]
 #[derive(Default)]
 struct JsLoader;
 
