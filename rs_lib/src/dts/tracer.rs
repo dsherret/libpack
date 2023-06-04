@@ -16,6 +16,7 @@ use super::analyzer::ModuleId;
 use super::analyzer::ModuleSymbol;
 use super::analyzer::SymbolId;
 use super::analyzer::UniqueSymbol;
+use super::is_remote;
 
 #[derive(Debug)]
 enum ExportsToTrace {
@@ -73,12 +74,17 @@ impl<'a> Context<'a> {
     &mut self,
     specifier: &ModuleSpecifier,
   ) -> Result<&ModuleSymbol> {
+    self.ensure_analyze(specifier)?;
+    Ok(self.analyzer.get(specifier).unwrap())
+  }
+
+  pub fn ensure_analyze(&mut self, specifier: &ModuleSpecifier) -> Result<()> {
     if self.analyzer.get(specifier).is_none() {
       console_log!("Analyzing: {}", specifier);
       let parsed_source = self.parsed_source(specifier)?;
       self.analyzer.analyze(&parsed_source);
     }
-    Ok(self.analyzer.get(specifier).unwrap())
+    Ok(())
   }
 
   pub fn trace_exports(
@@ -249,25 +255,29 @@ fn trace_module<'a>(
   exports_to_trace: &ExportsToTrace,
 ) -> Result<()> {
   let mut pending = context.trace_exports(specifier, exports_to_trace)?;
+  let mut locally_imported_remote_urls = Vec::new();
 
   while let Some((specifier, symbol_id)) = pending.pop() {
     let module_symbol = context.analyzer.get_mut(&specifier).unwrap();
     let symbol = module_symbol.symbol_mut(symbol_id).unwrap();
     if symbol.mark_public() {
       if let Some(file_dep) = symbol.file_dep() {
-        let maybe_specifier = context.graph.resolve_dependency(
+        let maybe_dep_specifier = context.graph.resolve_dependency(
           &file_dep.specifier,
           &specifier,
           /* prefer types */ true,
         );
-        if let Some(specifier) = maybe_specifier {
+        if let Some(dep_specifier) = maybe_dep_specifier {
+          if is_remote(&dep_specifier) && !is_remote(&specifier) {
+            locally_imported_remote_urls.push(dep_specifier.clone());
+          }
           if let Some(exports_to_trace) =
-            context.pending_traces.get_mut(&specifier)
+            context.pending_traces.get_mut(&dep_specifier)
           {
             exports_to_trace.add(&file_dep.name);
           } else {
             context.pending_traces.insert(
-              specifier,
+              dep_specifier,
               ExportsToTrace::from_file_dep_name(&file_dep.name),
             );
           }
@@ -287,6 +297,12 @@ fn trace_module<'a>(
         }
       }));
     }
+  }
+
+  for specifier in locally_imported_remote_urls {
+    context.ensure_analyze(&specifier)?;
+    let module_symbol = context.analyzer.get_mut(&specifier).unwrap();
+    module_symbol.mark_is_locally_imported_remote();
   }
 
   Ok(())

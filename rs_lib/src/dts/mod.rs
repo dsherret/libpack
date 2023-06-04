@@ -53,86 +53,113 @@ pub fn pack_dts(
     body: vec![],
     shebang: None,
   };
+  let mut remote_module_items = Vec::new();
 
   for graph_module in graph.modules() {
     console_log!("Module: {}", graph_module.specifier());
-    if matches!(graph_module.specifier().scheme(), "https" | "http") {
-      continue;
-    }
-
-    if let Some(module_symbol) = module_analyzer.get(graph_module.specifier()) {
-      let ranges = module_symbol.public_source_ranges();
-      if !ranges.is_empty() || !module_symbol.traced_re_exports().is_empty() {
-        let graph_module = graph_module.esm().unwrap();
-        // todo: consolidate with other code that does this
-        let parsed_source = parser.parse_module(
-          &graph_module.specifier,
-          graph_module.source.clone(),
-          graph_module.media_type,
-        )?;
-
-        let file_name = FileName::Url(graph_module.specifier.clone());
-        let source_file = source_map.new_source_file(
-          file_name,
-          parsed_source.text_info().text().to_string(),
-        );
-
-        let mut module = (*parsed_source.module()).clone();
-        let is_root = graph.roots.contains(&graph_module.specifier);
-        let module_name = if is_root {
-          None
-        } else {
-          Some(module_symbol.module_id().to_code_string())
-        };
-        // strip all the non-declaration types
-        let mut dts_transformer = DtsTransformer {
-          module_name,
-          module_specifier: &graph_module.specifier,
-          module_symbol,
-          parsed_source: &parsed_source,
-          ranges,
-          graph,
-          module_analyzer: &module_analyzer,
-          append_module_items: Default::default(),
-          re_export_index: 0,
-        };
-        module.visit_mut_with(&mut dts_transformer);
-
-        // adjust the spans to be within the sourcemap
-        let mut span_adjuster = SpanAdjuster {
-          start_pos: source_file.start_pos,
-        };
-        module.visit_mut_with(&mut span_adjuster);
-
-        // Add the file's leading comments to the global comment map.
-        // We don't have to deal with the trailing comments because
-        // we're only interested in jsdocs
-        for (byte_pos, comment_vec) in parsed_source.comments().leading_map() {
-          let byte_pos = source_file.start_pos + *byte_pos;
-          for comment in comment_vec {
-            // only include js docs
-            if comment.kind == CommentKind::Block
-              && comment.text.starts_with('*')
-            {
-              global_comments.add_leading(
-                byte_pos,
-                Comment {
-                  kind: comment.kind,
-                  span: Span::new(
-                    source_file.start_pos + comment.span.lo,
-                    source_file.start_pos + comment.span.hi,
-                    comment.span.ctxt,
-                  ),
-                  text: comment.text.clone(),
+    if is_remote(graph_module.specifier()) {
+      if let Some(module_symbol) = module_analyzer.get(graph_module.specifier())
+      {
+        if module_symbol.is_locally_imported_remote() {
+          remote_module_items.push(ModuleItem::ModuleDecl(ModuleDecl::Import(
+            ImportDecl {
+              span: DUMMY_SP,
+              specifiers: vec![ImportSpecifier::Namespace(
+                ImportStarAsSpecifier {
+                  span: DUMMY_SP,
+                  local: ident(module_symbol.module_id().to_code_string()),
                 },
-              );
+              )],
+              src: Box::new(Str {
+                span: DUMMY_SP,
+                value: graph_module.specifier().to_string().into(),
+                raw: None,
+              }),
+              type_only: false,
+              asserts: None,
+            },
+          )))
+        }
+      }
+    } else {
+      if let Some(module_symbol) = module_analyzer.get(graph_module.specifier())
+      {
+        let ranges = module_symbol.public_source_ranges();
+        if !ranges.is_empty() || !module_symbol.traced_re_exports().is_empty() {
+          let graph_module = graph_module.esm().unwrap();
+          // todo: consolidate with other code that does this
+          let parsed_source = parser.parse_module(
+            &graph_module.specifier,
+            graph_module.source.clone(),
+            graph_module.media_type,
+          )?;
+
+          let file_name = FileName::Url(graph_module.specifier.clone());
+          let source_file = source_map.new_source_file(
+            file_name,
+            parsed_source.text_info().text().to_string(),
+          );
+
+          let mut module = (*parsed_source.module()).clone();
+          let is_root = graph.roots.contains(&graph_module.specifier);
+          let module_name = if is_root {
+            None
+          } else {
+            Some(module_symbol.module_id().to_code_string())
+          };
+          // strip all the non-declaration types
+          let mut dts_transformer = DtsTransformer {
+            module_name,
+            module_specifier: &graph_module.specifier,
+            module_symbol,
+            parsed_source: &parsed_source,
+            ranges,
+            graph,
+            module_analyzer: &module_analyzer,
+            append_module_items: Default::default(),
+            re_export_index: 0,
+          };
+          module.visit_mut_with(&mut dts_transformer);
+
+          // adjust the spans to be within the sourcemap
+          let mut span_adjuster = SpanAdjuster {
+            start_pos: source_file.start_pos,
+          };
+          module.visit_mut_with(&mut span_adjuster);
+
+          // Add the file's leading comments to the global comment map.
+          // We don't have to deal with the trailing comments because
+          // we're only interested in jsdocs
+          for (byte_pos, comment_vec) in parsed_source.comments().leading_map()
+          {
+            let byte_pos = source_file.start_pos + *byte_pos;
+            for comment in comment_vec {
+              // only include js docs
+              if comment.kind == CommentKind::Block
+                && comment.text.starts_with('*')
+              {
+                global_comments.add_leading(
+                  byte_pos,
+                  Comment {
+                    kind: comment.kind,
+                    span: Span::new(
+                      source_file.start_pos + comment.span.lo,
+                      source_file.start_pos + comment.span.hi,
+                      comment.span.ctxt,
+                    ),
+                    text: comment.text.clone(),
+                  },
+                );
+              }
             }
           }
+          final_module.body.extend(module.body);
         }
-        final_module.body.extend(module.body);
       }
     }
   }
+
+  final_module.body.splice(0..0, remote_module_items);
 
   let mut src_map_buf = vec![];
   let mut buf = vec![];
@@ -1304,4 +1331,8 @@ fn ts_keyword_type(kind: TsKeywordTypeKind) -> TsType {
     span: DUMMY_SP,
     kind,
   })
+}
+
+pub fn is_remote(specifier: &ModuleSpecifier) -> bool {
+  matches!(specifier.scheme(), "https" | "http")
 }

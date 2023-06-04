@@ -98,6 +98,7 @@ pub struct ModuleSymbol {
   swc_id_to_symbol_id: HashMap<Id, SymbolId>,
   symbols: HashMap<SymbolId, Symbol>,
   traced_re_exports: IndexMap<String, UniqueSymbol>,
+  is_locally_imported_remote: bool,
 }
 
 impl ModuleSymbol {
@@ -112,6 +113,14 @@ impl ModuleSymbol {
       .filter(|symbol| symbol.is_public)
       .flat_map(|symbol| symbol.decls.clone())
       .collect()
+  }
+
+  pub fn is_locally_imported_remote(&self) -> bool {
+    self.is_locally_imported_remote
+  }
+
+  pub fn mark_is_locally_imported_remote(&mut self) {
+    self.is_locally_imported_remote = true;
   }
 
   pub fn traced_re_exports(&self) -> &IndexMap<String, UniqueSymbol> {
@@ -238,6 +247,7 @@ impl ModuleAnalyzer {
       default_export_symbol_id: None,
       swc_id_to_symbol_id: Default::default(),
       symbols: Default::default(),
+      is_locally_imported_remote: false,
     };
 
     let is_remote = {
