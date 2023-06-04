@@ -35,12 +35,12 @@ declare module pack2 {
     const __packTsUnder5_2_Workaround__: unknown;
 }
 declare module pack1 {
+    import test1 = pack2.test1;
+    export const test10: typeof test1;
     import __export1 = pack2.test1;
     export { __export1 as test1 };
     import __export2 = pack2.test5;
     export { __export2 as test3 };
-    import test1 = pack2.test1;
-    export const test10: typeof test1;
 }
 import __export1 = pack1.test1;
 export { __export1 as test1 };

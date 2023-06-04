@@ -56,6 +56,10 @@ pub fn pack_dts(
 
   for graph_module in graph.modules() {
     console_log!("Module: {}", graph_module.specifier());
+    if matches!(graph_module.specifier().scheme(), "https" | "http") {
+      continue;
+    }
+
     if let Some(module_symbol) = module_analyzer.get(graph_module.specifier()) {
       let ranges = module_symbol.public_source_ranges();
       if !ranges.is_empty() || !module_symbol.traced_re_exports().is_empty() {
@@ -89,7 +93,6 @@ pub fn pack_dts(
           ranges,
           graph,
           module_analyzer: &module_analyzer,
-          insert_module_items: Default::default(),
           append_module_items: Default::default(),
           re_export_index: 0,
         };
@@ -188,7 +191,6 @@ struct DtsTransformer<'a> {
   ranges: HashSet<SourceRange>,
   graph: &'a ModuleGraph,
   module_analyzer: &'a ModuleAnalyzer,
-  insert_module_items: Vec<ModuleItem>,
   append_module_items: Vec<ModuleItem>,
   re_export_index: u32,
 }
@@ -886,7 +888,6 @@ impl<'a> VisitMut for DtsTransformer<'a> {
       }
       true
     });
-    n.splice(0..0, self.insert_module_items.drain(..));
     n.extend(self.append_module_items.drain(..));
 
     // todo: temporary workaround until https://github.com/microsoft/TypeScript/issues/54446 is fixed
@@ -953,7 +954,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                   ModuleExportName::Str(_) => todo!(),
                 });
               let private_name = self.next_re_export_name();
-              self.insert_module_items.push(ModuleItem::ModuleDecl(
+              self.append_module_items.push(ModuleItem::ModuleDecl(
                 ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
                   span: DUMMY_SP,
                   declare: false,
@@ -981,7 +982,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                 })),
               ));
               self
-                .insert_module_items
+                .append_module_items
                 .push(private_name.into_module_item(export_name));
             }
             ExportSpecifier::Namespace(specifier) => {
@@ -990,7 +991,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                 ModuleExportName::Str(_) => todo!(),
               };
               let private_name = self.next_re_export_name();
-              self.insert_module_items.push(ModuleItem::ModuleDecl(
+              self.append_module_items.push(ModuleItem::ModuleDecl(
                 ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
                   span: DUMMY_SP,
                   declare: false,
@@ -1003,7 +1004,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                 })),
               ));
               self
-                .insert_module_items
+                .append_module_items
                 .push(private_name.into_module_item(export_name));
             }
             ExportSpecifier::Default(_) => todo!(),

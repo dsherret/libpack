@@ -27,10 +27,10 @@ declare module pack3 {
     }
 }
 declare module pack1 {
-    import __export2 = pack3.Test;
-    export { __export2 as Test };
     import __export1 = pack2.test1;
     export { __export1 as test1 };
+    import __export2 = pack3.Test;
+    export { __export2 as Test };
     const __packTsUnder5_2_Workaround__: unknown;
 }
 import __export1 = pack1.Test;

@@ -23,10 +23,10 @@ declare module pack2 {
     const b: number;
     export { b as __default };
 }
-import __export1 = pack1.__default;
-export { __export1 as a };
 import b = pack2.__default;
 import c = pack2.__default;
 export { b, c };
 declare const $: number;
 export default $;
+import __export1 = pack1.__default;
+export { __export1 as a };

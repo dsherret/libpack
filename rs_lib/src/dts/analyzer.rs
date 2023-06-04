@@ -239,7 +239,13 @@ impl ModuleAnalyzer {
       swc_id_to_symbol_id: Default::default(),
       symbols: Default::default(),
     };
-    let filler = SymbolFiller { source };
+
+    let is_remote = {
+      let lower_specifier = source.specifier().to_lowercase();
+      lower_specifier.starts_with("https://")
+        || lower_specifier.starts_with("http://")
+    };
+    let filler = SymbolFiller { source, is_remote };
     filler.fill_module(&mut module_symbol, module);
     self
       .modules
@@ -249,6 +255,7 @@ impl ModuleAnalyzer {
 
 struct SymbolFiller<'a> {
   source: &'a ParsedSource,
+  is_remote: bool,
 }
 
 impl<'a> SymbolFiller<'a> {
@@ -321,6 +328,9 @@ impl<'a> SymbolFiller<'a> {
     match module_item {
       ModuleItem::ModuleDecl(decl) => match decl {
         ModuleDecl::Import(import_decl) => {
+          if self.is_remote {
+            return; // no need to analyze
+          }
           for specifier in &import_decl.specifiers {
             match specifier {
               ImportSpecifier::Named(n) => {
@@ -364,49 +374,54 @@ impl<'a> SymbolFiller<'a> {
             }
           }
         }
-        ModuleDecl::ExportDecl(export_decl) => match &export_decl.decl {
-          Decl::Class(n) => {
-            let symbol = file_module
-              .get_symbol_from_swc_id(n.ident.to_id(), export_decl.range());
-            self.fill_class_decl(symbol, n);
+        ModuleDecl::ExportDecl(export_decl) => {
+          if self.is_remote {
+            return; // no need to analyze
           }
-          Decl::Fn(n) => {
-            let symbol = file_module
-              .get_symbol_from_swc_id(n.ident.to_id(), export_decl.range());
-            self.fill_fn_decl(symbol, n);
-          }
-          Decl::Var(n) => {
-            for decl in &n.decls {
-              let ids: Vec<Id> = find_pat_ids(&decl.name);
-              for id in ids {
-                let symbol =
-                  file_module.get_symbol_from_swc_id(id, decl.range());
-                self.fill_var_declarator(symbol, decl);
+          match &export_decl.decl {
+            Decl::Class(n) => {
+              let symbol = file_module
+                .get_symbol_from_swc_id(n.ident.to_id(), export_decl.range());
+              self.fill_class_decl(symbol, n);
+            }
+            Decl::Fn(n) => {
+              let symbol = file_module
+                .get_symbol_from_swc_id(n.ident.to_id(), export_decl.range());
+              self.fill_fn_decl(symbol, n);
+            }
+            Decl::Var(n) => {
+              for decl in &n.decls {
+                let ids: Vec<Id> = find_pat_ids(&decl.name);
+                for id in ids {
+                  let symbol =
+                    file_module.get_symbol_from_swc_id(id, decl.range());
+                  self.fill_var_declarator(symbol, decl);
+                }
               }
             }
+            Decl::TsInterface(n) => {
+              let symbol = file_module
+                .get_symbol_from_swc_id(n.id.to_id(), export_decl.range());
+              self.fill_ts_interface(symbol, n);
+            }
+            Decl::TsTypeAlias(n) => {
+              let symbol = file_module
+                .get_symbol_from_swc_id(n.id.to_id(), export_decl.range());
+              self.fill_ts_type_alias(symbol, n);
+            }
+            Decl::TsEnum(n) => {
+              let symbol = file_module
+                .get_symbol_from_swc_id(n.id.to_id(), export_decl.range());
+              self.fill_ts_enum(symbol, n);
+            }
+            Decl::TsModule(n) => {
+              self.fill_ts_module(file_module, export_decl.range(), n)
+            }
+            Decl::Using(_) => {
+              unreachable!()
+            }
           }
-          Decl::TsInterface(n) => {
-            let symbol = file_module
-              .get_symbol_from_swc_id(n.id.to_id(), export_decl.range());
-            self.fill_ts_interface(symbol, n);
-          }
-          Decl::TsTypeAlias(n) => {
-            let symbol = file_module
-              .get_symbol_from_swc_id(n.id.to_id(), export_decl.range());
-            self.fill_ts_type_alias(symbol, n);
-          }
-          Decl::TsEnum(n) => {
-            let symbol = file_module
-              .get_symbol_from_swc_id(n.id.to_id(), export_decl.range());
-            self.fill_ts_enum(symbol, n);
-          }
-          Decl::TsModule(n) => {
-            self.fill_ts_module(file_module, export_decl.range(), n)
-          }
-          Decl::Using(_) => {
-            unreachable!()
-          }
-        },
+        }
         ModuleDecl::ExportNamed(n) => {
           for specifier in &n.specifiers {
             match specifier {
@@ -526,6 +541,9 @@ impl<'a> SymbolFiller<'a> {
           // ignore
         }
         Stmt::Decl(n) => {
+          if self.is_remote {
+            return; // no need to analyze
+          }
           match n {
             Decl::Class(n) => {
               let id = n.ident.to_id();
