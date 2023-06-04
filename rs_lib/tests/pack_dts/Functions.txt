@@ -54,6 +54,11 @@ export async function* k(
 export function* l() {
   yield 5;
 }
+class Internal {}
+export function m(value: string): number;
+export function m(value: number): string;
+export function m(value: number): Internal {
+}
 
 # output.d.ts
 export function a(test: string): number;
@@ -75,3 +80,5 @@ export function i(): Promise<unknown>;
 export function j(): Promise<unknown>;
 export function k(a: number, { b , c , d  }?: WalkOptions): AsyncIterableIterator<string>;
 export function l(): Generator<unknown, void, unknown>;
+export function m(value: string): number;
+export function m(value: number): string;

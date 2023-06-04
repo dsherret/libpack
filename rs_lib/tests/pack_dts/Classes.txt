@@ -51,7 +51,39 @@ export class Test {
 
   bytes(options?: { copy?: boolean }): Uint8Array {
   }
+
+  header(name: string): this;
+  header(value: number): this;
+  header() {
+    return this;
+  }
+
+  #header(name: string): this;
+  #header(value: number): this;
+  #header() {
+    return this;
+  }
+
+  /** @internal Should cause none of them to be shown */
+  internalOnSignature(value: number): this;
+  internalOnSignature(): InternalOnSignature {
+    return this;
+  }
+
+  #test(value: number): this;
+  #test(): InternalOnSignature {
+    return this;
+  }
 }
+
+export class OtherClass {
+  constructor(value: string);
+  constructor(value: number);
+  constructor(value: string | number) {
+  }
+}
+
+class InternalOnSignature {}
 
 # output.d.ts
 import Other = pack1.Other;
@@ -79,6 +111,12 @@ declare const symbol: Symbol;
     bytes(options?: {
         copy?: boolean;
     }): Uint8Array;
+    header(name: string): this;
+    header(value: number): this;
+}
+export class OtherClass {
+    constructor(value: string);
+    constructor(value: number);
 }
 declare module pack1 {
     export class Other {

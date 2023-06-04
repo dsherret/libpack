@@ -29,6 +29,7 @@ use crate::console_log;
 use crate::dts::analyzer::ModuleAnalyzer;
 
 use self::analyzer::has_internal_jsdoc;
+use self::analyzer::is_class_member_overload;
 use self::analyzer::ModuleSymbol;
 
 mod analyzer;
@@ -260,7 +261,11 @@ impl<'a> VisitMut for DtsTransformer<'a> {
         ClassMember::PrivateProp(_) | ClassMember::PrivateMethod(_)
       )
     });
+    let mut last_was_overload = false;
     n.body.retain(|member| {
+      let is_overload = is_class_member_overload(member);
+      let is_implementation_with_overloads = !is_overload && last_was_overload;
+      last_was_overload = is_overload;
       let keep = match member {
         ClassMember::Constructor(_)
         | ClassMember::Method(_)
@@ -272,7 +277,9 @@ impl<'a> VisitMut for DtsTransformer<'a> {
         | ClassMember::StaticBlock(_) => false,
         ClassMember::AutoAccessor(_) => true,
       };
-      keep && !self.has_internal_jsdoc(member.start())
+      keep
+        && !self.has_internal_jsdoc(member.start())
+        && !is_implementation_with_overloads
     });
 
     for member in n.body.iter_mut() {
@@ -538,7 +545,16 @@ impl<'a> VisitMut for DtsTransformer<'a> {
         .unwrap_or(false);
 
       // todo: add filename with line and column number
-      eprintln!("Warning: no return type.");
+      let line_and_column = self
+        .parsed_source
+        .text_info()
+        .line_and_column_display(n.start());
+      console_log!(
+        "Warning: no return type at: {}:{}:{}",
+        self.module_specifier,
+        line_and_column.line_number,
+        line_and_column.column_number
+      );
 
       let return_type = Box::new(if is_last_return {
         ts_keyword_type(TsKeywordTypeKind::TsUnknownKeyword)

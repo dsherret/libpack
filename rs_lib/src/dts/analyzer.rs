@@ -270,7 +270,16 @@ struct SymbolFiller<'a> {
 
 impl<'a> SymbolFiller<'a> {
   fn fill_module(&self, file_module: &mut ModuleSymbol, module: &Module) {
+    let mut last_was_overload = false;
     for module_item in &module.body {
+      let is_overload = is_module_item_overload(module_item);
+      let is_implementation_with_overloads = !is_overload && last_was_overload;
+      last_was_overload = is_overload;
+
+      if is_implementation_with_overloads {
+        continue;
+      }
+
       self.fill_module_item(file_module, module_item);
 
       // now fill the file exports
@@ -698,7 +707,17 @@ impl<'a> SymbolFiller<'a> {
           }
         }
       };
+      let mut last_was_overload = false;
       for item in &block.body {
+        let is_overload = is_module_item_overload(item);
+        let is_implementation_with_overloads =
+          !is_overload && last_was_overload;
+        last_was_overload = is_overload;
+
+        if is_implementation_with_overloads {
+          continue;
+        }
+
         self.fill_module_item(file_module, item);
         let symbol = file_module.symbol_mut(symbol_id).unwrap();
         match item {
@@ -803,8 +822,15 @@ impl<'a> SymbolFiller<'a> {
     symbol: &mut Symbol,
     members: &[ClassMember],
   ) {
+    let mut last_was_overload = false;
     for member in members {
-      if self.has_internal_jsdoc(member.start()) {
+      let is_overload = is_class_member_overload(member);
+      let is_implementation_with_overloads = !is_overload && last_was_overload;
+      last_was_overload = is_overload;
+
+      if is_implementation_with_overloads
+        || self.has_internal_jsdoc(member.start())
+      {
         continue;
       }
 
@@ -993,5 +1019,39 @@ pub fn has_internal_jsdoc(source: &ParsedSource, pos: SourcePos) -> bool {
     })
   } else {
     false
+  }
+}
+
+pub fn is_class_member_overload(member: &ClassMember) -> bool {
+  match member {
+    ClassMember::Constructor(ctor) => ctor.body.is_none(),
+    ClassMember::Method(method) => method.function.body.is_none(),
+    ClassMember::PrivateMethod(method) => method.function.body.is_none(),
+    ClassMember::ClassProp(_)
+    | ClassMember::PrivateProp(_)
+    | ClassMember::TsIndexSignature(_)
+    | ClassMember::AutoAccessor(_)
+    | ClassMember::StaticBlock(_)
+    | ClassMember::Empty(_) => false,
+  }
+}
+
+pub fn is_module_item_overload(module_item: &ModuleItem) -> bool {
+  match module_item {
+    ModuleItem::ModuleDecl(module_decl) => match module_decl {
+      ModuleDecl::ExportDecl(decl) => is_decl_overload(&decl.decl),
+      _ => false,
+    },
+    ModuleItem::Stmt(stmt) => match stmt {
+      Stmt::Decl(decl) => is_decl_overload(decl),
+      _ => false,
+    },
+  }
+}
+
+pub fn is_decl_overload(decl: &Decl) -> bool {
+  match decl {
+    Decl::Fn(func) => func.function.body.is_none(),
+    _ => false,
   }
 }
