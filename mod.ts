@@ -23,7 +23,7 @@ export async function pack(options: PackOptions) {
     `/// <reference types="./${path.basename(dtsOutputPath)}" />\n` +
     output.js,
   );
-  await Deno.writeTextFileSync(dtsOutputPath, output.dts);
+  await Deno.writeTextFileSync(dtsOutputPath, output.dts.replaceAll("*/ ", "*/\n"));
   if (options.typeCheck ?? true) {
     const checkOutput = await new Deno.Command(Deno.execPath(), {
       args: ["check", "--no-config", dtsOutputPath]
