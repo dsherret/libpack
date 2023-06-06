@@ -22,7 +22,7 @@ Object.defineProperty(pack0, "a", { get: () => a });
 })();
 
 // mod.ts
-var Testing;
+let Testing;
 (function(Testing) {
     Testing[Testing["Value"] = pack0.a] = "Value";
 })(Testing || (Testing = {}));

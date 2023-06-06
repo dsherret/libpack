@@ -43,25 +43,27 @@ const pack4 = {
 
 // e.ts
 (() => {
-const __pack_default__ = function() {}
+const __pack_default__ = function() {};
 Object.defineProperty(pack4, "default", { get: () => __pack_default__ });
 })();
 
 // d.ts
 (() => {
-function d() {}
+const d = function d() {};
 Object.defineProperty(pack3, "default", { get: () => d });
 })();
 
 // c.ts
 (() => {
-const __pack_default__ = class {}
+const __pack_default__ = class {
+};
 Object.defineProperty(pack2, "default", { get: () => __pack_default__ });
 })();
 
 // b.ts
 (() => {
-class B {}
+const B = class B {
+};
 Object.defineProperty(pack1, "default", { get: () => B });
 })();
 

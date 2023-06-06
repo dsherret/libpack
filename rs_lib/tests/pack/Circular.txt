@@ -37,10 +37,9 @@ const pack2 = {
 // b.ts
 (() => {
 let b = 5;
-
 function modifyValue() {
-  b = 2;
-  console.log(pack0.getValue());
+    b = 2;
+    console.log(pack0.getValue());
 }
 Object.defineProperty(pack2, "b", { get: () => b });
 Object.defineProperty(pack2, "modifyValue", { get: () => modifyValue });
@@ -49,7 +48,7 @@ Object.defineProperty(pack2, "modifyValue", { get: () => modifyValue });
 // a.ts
 (() => {
 function getValue() {
-  return pack2.b;
+    return pack2.b;
 }
 Object.defineProperty(pack0, "getValue", { get: () => getValue });
 Object.defineProperty(pack0, "modifyValue", { get: () => pack2.modifyValue });

@@ -27,6 +27,10 @@ use deno_graph::ModuleParser;
 
 use crate::console_log;
 use crate::dts::analyzer::ModuleAnalyzer;
+use crate::helpers::adjust_spans;
+use crate::helpers::ident;
+use crate::helpers::is_remote;
+use crate::helpers::ts_keyword_type;
 
 use self::analyzer::has_internal_jsdoc;
 use self::analyzer::is_class_member_overload;
@@ -123,10 +127,7 @@ pub fn pack_dts(
           module.visit_mut_with(&mut dts_transformer);
 
           // adjust the spans to be within the sourcemap
-          let mut span_adjuster = SpanAdjuster {
-            start_pos: source_file.start_pos,
-          };
-          module.visit_mut_with(&mut span_adjuster);
+          adjust_spans(source_file.start_pos, &mut module);
 
           // Add the file's leading comments to the global comment map.
           // We don't have to deal with the trailing comments because
@@ -1161,7 +1162,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
     visit_mut_var_decl(self, n)
   }
 
-  fn visit_mut_var_decl_kind(&mut self, n: &mut deno_ast::view::VarDeclKind) {
+  fn visit_mut_var_decl_kind(&mut self, n: &mut VarDeclKind) {
     visit_mut_var_decl_kind(self, n)
   }
 
@@ -1261,20 +1262,6 @@ impl<'a> VisitMut for DtsTransformer<'a> {
   }
 }
 
-struct SpanAdjuster {
-  start_pos: BytePos,
-}
-
-impl VisitMut for SpanAdjuster {
-  fn visit_mut_span(&mut self, span: &mut Span) {
-    if !span.is_dummy() {
-      // adjust the span to be within the source map
-      span.lo = self.start_pos + span.lo;
-      span.hi = self.start_pos + span.hi;
-    }
-  }
-}
-
 fn maybe_infer_type_from_expr(expr: &Expr) -> Option<TsType> {
   match expr {
     Expr::TsTypeAssertion(n) => Some(*n.type_ann.clone()),
@@ -1332,23 +1319,4 @@ fn maybe_infer_type_from_expr(expr: &Expr) -> Option<TsType> {
     | Expr::OptChain(_)
     | Expr::Invalid(_) => None,
   }
-}
-
-fn ident(name: String) -> Ident {
-  Ident {
-    span: DUMMY_SP,
-    sym: name.clone().into(),
-    optional: false,
-  }
-}
-
-fn ts_keyword_type(kind: TsKeywordTypeKind) -> TsType {
-  TsType::TsKeywordType(TsKeywordType {
-    span: DUMMY_SP,
-    kind,
-  })
-}
-
-pub fn is_remote(specifier: &ModuleSpecifier) -> bool {
-  matches!(specifier.scheme(), "https" | "http")
 }

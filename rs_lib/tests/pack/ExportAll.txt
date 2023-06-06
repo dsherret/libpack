@@ -59,7 +59,7 @@ Object.defineProperty(pack0, "myValue2", { get: () => pack2.myValue2 });
 
 // mod.ts
 const obj = {
-  myValue1: pack0.myValue1,
+    myValue1: pack0.myValue1
 };
 
 console.log(pack0.myValue1);

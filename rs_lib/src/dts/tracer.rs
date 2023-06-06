@@ -9,6 +9,7 @@ use deno_graph::ModuleParser;
 use indexmap::IndexMap;
 
 use crate::console_log;
+use crate::helpers::is_remote;
 
 use super::analyzer::FileDepName;
 use super::analyzer::ModuleAnalyzer;
@@ -16,7 +17,6 @@ use super::analyzer::ModuleId;
 use super::analyzer::ModuleSymbol;
 use super::analyzer::SymbolId;
 use super::analyzer::UniqueSymbol;
-use super::is_remote;
 
 #[derive(Debug)]
 enum ExportsToTrace {

@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde::Serialize;
 
 mod dts;
+mod helpers;
 mod pack_js;
 
 #[cfg(target_arch = "wasm32")]
