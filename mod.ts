@@ -4,6 +4,7 @@ import * as path from "https://deno.land/std@0.188.0/path/mod.ts";
 export interface PackOptions {
   entryPoint: string;
   outputPath: string;
+  testPath?: string;
   /** Whether to type check the outputted declaration file.
    * Defaults to `true`.
    */
@@ -24,11 +25,31 @@ export async function pack(options: PackOptions) {
     output.js,
   );
   await Deno.writeTextFileSync(dtsOutputPath, output.dts.replaceAll("*/ ", "*/\n"));
-  if (options.typeCheck ?? true) {
-    const checkOutput = await new Deno.Command(Deno.execPath(), {
-      args: ["check", "--no-config", dtsOutputPath]
+  if ((options.typeCheck ?? true) && options.testPath == null) {
+    const output = await new Deno.Command(Deno.execPath(), {
+      args: ["check", "--no-config", dtsOutputPath],
     }).spawn();
-    if (!await checkOutput.status) {
+    if (!await output.status) {
+      Deno.exit(1);
+    }
+  }
+  if (options.testPath != null) {
+    const importMapObj = {
+      imports: {
+        [path.toFileUrl(path.resolve(options.entryPoint)).toString()]: path.toFileUrl(jsOutputPath).toString(),
+      }
+    };
+    const uri = `data:,${JSON.stringify(importMapObj)}`;
+    // todo: configurable permissions
+    const args = ["test", "-A", "--import-map", uri];
+    if (options.typeCheck === false) {
+      args.push("--no-check");
+    }
+    args.push(options.testPath);
+    const output = await new Deno.Command(Deno.execPath(), {
+      args,
+    }).spawn();
+    if (!await output.status) {
       Deno.exit(1);
     }
   }

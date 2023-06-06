@@ -1,0 +1,34 @@
+# mod.ts
+import { a, b } from './a.ts';
+export { a, b } from './a.ts';
+
+console.log(a);
+console.log(b);
+
+# a.ts
+const a = 1;
+const b = 2;
+
+export { a, b };
+
+# output.js
+const pack0 = {
+  a: undefined,
+  b: undefined,
+};
+
+// a.ts
+(() => {
+const a = 1;
+const b = 2;
+Object.defineProperty(pack0, "a", { get: () => a });
+Object.defineProperty(pack0, "b", { get: () => b });
+})();
+
+// mod.ts
+console.log(pack0.a);
+console.log(pack0.b);
+const _packReExport1 = pack0.a;
+export { _packReExport1 as a };
+const _packReExport2 = pack0.b;
+export { _packReExport2 as b };
