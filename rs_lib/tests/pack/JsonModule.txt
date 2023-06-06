@@ -16,6 +16,4 @@ const pack0 = {
   "data": 5
 }
 };
-
-// mod.ts
 console.log(pack0.default.data);

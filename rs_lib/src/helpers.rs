@@ -31,6 +31,92 @@ pub fn ts_keyword_type(kind: TsKeywordTypeKind) -> TsType {
   })
 }
 
+pub fn export_x_as_y(x: String, y: String) -> ModuleItem {
+  ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(NamedExport {
+    span: DUMMY_SP,
+    specifiers: vec![ExportSpecifier::Named(ExportNamedSpecifier {
+      span: DUMMY_SP,
+      orig: ident(x).into(),
+      exported: Some(ident(y).into()),
+      is_type_only: false,
+    })],
+    src: None,
+    type_only: false,
+    asserts: None,
+  }))
+}
+
+pub fn member_x_y(left: String, right: String) -> MemberExpr {
+  MemberExpr {
+    span: DUMMY_SP,
+    obj: ident(left).into(),
+    prop: ident(right).into(),
+  }
+}
+
+pub fn const_var_decl(name: String, init: Expr) -> VarDecl {
+  VarDecl {
+    span: DUMMY_SP,
+    kind: VarDeclKind::Const,
+    declare: false,
+    decls: vec![VarDeclarator {
+      span: DUMMY_SP,
+      name: ident(name).into(),
+      init: Some(Box::new(init)),
+      definite: false,
+    }],
+  }
+}
+
+pub fn object_define_property(name: String, key: String, expr: Expr) -> Stmt {
+  Stmt::Expr(ExprStmt {
+    span: DUMMY_SP,
+    expr: Box::new(Expr::Call(CallExpr {
+      span: DUMMY_SP,
+      callee: Callee::Expr(Box::new(Expr::Member(MemberExpr {
+        span: DUMMY_SP,
+        obj: ident("Object".to_string()).into(),
+        prop: ident("defineProperty".to_string()).into(),
+      }))),
+      args: Vec::from([
+        ExprOrSpread {
+          expr: Box::new(Expr::Ident(ident(name))),
+          spread: None,
+        },
+        ExprOrSpread {
+          expr: Box::new(Expr::Lit(Lit::Str(Str {
+            span: DUMMY_SP,
+            value: key.into(),
+            raw: None,
+          }))),
+          spread: None,
+        },
+        ExprOrSpread {
+          expr: Box::new(Expr::Object(ObjectLit {
+            span: DUMMY_SP,
+            props: Vec::from([PropOrSpread::Prop(Box::new(Prop::KeyValue(
+              KeyValueProp {
+                key: ident("get".to_string()).into(),
+                value: Box::new(Expr::Arrow(ArrowExpr {
+                  span: DUMMY_SP,
+                  params: Vec::new(),
+                  body: Box::new(BlockStmtOrExpr::Expr(expr.into())),
+                  is_async: false,
+                  is_generator: false,
+                  type_params: None,
+                  return_type: None,
+                })),
+              },
+            )))]),
+          })),
+          spread: None,
+        },
+      ]),
+      type_args: None,
+    })),
+  })
+}
+
 pub fn is_remote(specifier: &ModuleSpecifier) -> bool {
   matches!(specifier.scheme(), "https" | "http")
 }

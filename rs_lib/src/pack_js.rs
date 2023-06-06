@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use deno_ast::swc::ast::Id;
 use deno_ast::swc::ast::*;
+use deno_ast::swc::common::comments::CommentKind;
 use deno_ast::swc::common::comments::SingleThreadedComments;
 use deno_ast::swc::common::util::take::Take;
 use deno_ast::swc::common::FileName;
@@ -25,9 +26,13 @@ use deno_graph::ModuleParser;
 use deno_graph::WalkOptions;
 
 use crate::helpers::adjust_spans;
+use crate::helpers::const_var_decl;
+use crate::helpers::export_x_as_y;
 use crate::helpers::fill_leading_comments;
 use crate::helpers::fill_trailing_comments;
 use crate::helpers::ident;
+use crate::helpers::member_x_y;
+use crate::helpers::object_define_property;
 use crate::helpers::print_program;
 
 #[derive(Default)]
@@ -212,15 +217,35 @@ pub fn pack(
   }
 
   let root_dir = get_root_dir(ordered_specifiers.iter().map(|(s, _)| *s));
+  let global_comments = SingleThreadedComments::default();
+  let source_map = Rc::new(SourceMap::default());
+  let mut final_module = Module {
+    span: DUMMY_SP,
+    body: vec![],
+    shebang: None,
+  };
   let mut final_text = String::new();
   for (specifier, module) in &ordered_specifiers {
     if specifier.scheme() != "file" {
       let module_data = context.module_data.get_mut(specifier);
-      final_text.push_str(&format!(
-        "import * as {} from \"{}\";\n",
-        module_data.id.to_code_string(),
-        specifier.to_string(),
-      ));
+      final_module
+        .body
+        .push(ModuleItem::ModuleDecl(ModuleDecl::Import(ImportDecl {
+          span: DUMMY_SP,
+          specifiers: Vec::from([ImportSpecifier::Namespace(
+            ImportStarAsSpecifier {
+              span: DUMMY_SP,
+              local: ident(module_data.id.to_code_string()),
+            },
+          )]),
+          src: Box::new(Str {
+            span: DUMMY_SP,
+            value: specifier.to_string().into(),
+            raw: None,
+          }),
+          type_only: false,
+          asserts: None,
+        })));
     } else {
       if let deno_graph::Module::Esm(_) = module {
         let export_names = context.module_data.get_export_names(specifier);
@@ -228,19 +253,27 @@ pub fn pack(
         if export_names.is_empty() || context.graph.roots[0] == **specifier {
           continue;
         }
-        final_text.push_str(&format!(
-          "const {} = {{\n",
-          module_data.id.to_code_string()
-        ));
-        for name in export_names {
-          final_text.push_str(&format!("  {}: undefined,\n", name));
-        }
-        final_text.push_str("};\n");
+        final_module
+          .body
+          .push(ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(
+            const_var_decl(
+              module_data.id.to_code_string(),
+              Expr::Object(ObjectLit {
+                span: DUMMY_SP,
+                props: export_names
+                  .into_iter()
+                  .map(|name| {
+                    PropOrSpread::Prop(Box::new(Prop::KeyValue(KeyValueProp {
+                      key: ident(name).into(),
+                      value: ident("undefined".to_string()).into(),
+                    })))
+                  })
+                  .collect(),
+              }),
+            ),
+          )))));
       } else if let deno_graph::Module::Json(json) = module {
         let module_data = context.module_data.get_mut(specifier);
-        if !final_text.is_empty() {
-          final_text.push('\n');
-        }
         let displayed_specifier = match root_dir {
           Some(prefix) => {
             if specifier.scheme() == "file" {
@@ -272,7 +305,7 @@ pub fn pack(
       if let deno_graph::Module::Esm(esm) = module {
         let source = &esm.source;
         // eprintln!("PACKING: {}", specifier);
-        let module_text = {
+        let module = {
           let parsed_source = context.parser.parse_module(
             &esm.specifier,
             esm.source.clone(),
@@ -281,21 +314,25 @@ pub fn pack(
           // todo: do a single transpile for everything
           let module_data = context.module_data.get_mut(specifier);
           let mut module = module_data.module.take().unwrap();
-          let source_map = Rc::new(SourceMap::default());
           let top_level_mark = Mark::fresh(Mark::root());
           let source_file = source_map.new_source_file(
             FileName::Url(esm.specifier.clone()),
             source.to_string(),
           );
           adjust_spans(source_file.start_pos, &mut module);
-          let global_comments = SingleThreadedComments::default();
           fill_leading_comments(
             source_file.start_pos,
             &parsed_source,
             &global_comments,
-            |_| true,
+            // remove any jsdoc comments from the js output as they will
+            // appear in the dts output
+            |c| c.kind != CommentKind::Block || !c.text.starts_with("*"),
           );
-          fill_trailing_comments(source_file.start_pos, &parsed_source, &global_comments);
+          fill_trailing_comments(
+            source_file.start_pos,
+            &parsed_source,
+            &global_comments,
+          );
           let program = deno_ast::fold_program(
             Program::Module(module),
             &EmitOptions::default(),
@@ -304,21 +341,16 @@ pub fn pack(
             top_level_mark,
             parsed_source.diagnostics(),
           )?;
-          print_program(
-            &program,
-            &source_map,
-            &global_comments,
-          )?
+          match program {
+            Program::Module(module) => module,
+            Program::Script(_) => unreachable!(),
+          }
         };
         let module_data = context.module_data.get(specifier).unwrap();
-        let module_text = module_text.trim();
-        if !module_text.is_empty()
+        if !module.body.is_empty()
           || !module_data.exports.is_empty()
           || !module_data.re_exports.is_empty()
         {
-          if !final_text.is_empty() {
-            final_text.push('\n');
-          }
           let displayed_specifier = match root_dir {
             Some(prefix) => {
               if specifier.scheme() == "file" {
@@ -330,51 +362,128 @@ pub fn pack(
             }
             None => specifier.as_str(),
           };
-          final_text.push_str(&format!("// {}\n", displayed_specifier));
+          let specifier_id = displayed_specifier
+            .chars()
+            .map(|c| if c.is_alphanumeric() { c } else { '_' })
+            .collect::<String>();
           if *specifier == &roots[0] {
-            final_text.push_str(&module_text);
-            final_text.push_str("\n");
+            final_module.body.extend(module.body);
+
+            // re-exports
+            let mut export_names = HashSet::with_capacity(
+              module_data.exports.len() + module_data.re_exports.len(),
+            );
+            for export in &module_data.exports {
+              export_names.insert(export.export_name());
+            }
+            // todo: lots of code duplication below
+            let mut re_export_index = 0;
+            for re_export in &module_data.re_exports {
+              match &re_export.name {
+                ReExportName::Named(name) => {
+                  re_export_index += 1;
+                  let temp_name = format!("_packReExport{}", re_export_index);
+                  final_module.body.push(ModuleItem::Stmt(Stmt::Decl(
+                    Decl::Var(Box::new(const_var_decl(
+                      temp_name.clone(),
+                      Expr::Member(MemberExpr {
+                        span: DUMMY_SP,
+                        obj: ident(re_export.module_id.to_code_string()).into(),
+                        prop: ident(name.local_name.clone()).into(),
+                      }),
+                    ))),
+                  )));
+                  final_module.body.push(export_x_as_y(
+                    temp_name,
+                    name.export_name().to_string(),
+                  ));
+                  export_names.insert(name.export_name());
+                }
+                ReExportName::Namespace(name) => {
+                  re_export_index += 1;
+                  let temp_name = format!("_packReExport{}", re_export_index);
+                  final_module.body.push(
+                    const_var_decl(
+                      temp_name.clone(),
+                      Expr::Ident(ident(re_export.module_id.to_code_string())),
+                    )
+                    .into(),
+                  );
+                  final_module
+                    .body
+                    .push(export_x_as_y(temp_name, name.to_string()));
+                  export_names.insert(name);
+                }
+                ReExportName::All => {
+                  // handle these when all done
+                }
+              }
+            }
+            for re_export in &module_data.re_exports {
+              if matches!(re_export.name, ReExportName::All) {
+                let re_export_names =
+                  context.module_data.get_export_names(&re_export.specifier);
+                for name in &re_export_names {
+                  if !export_names.contains(&name) {
+                    re_export_index += 1;
+                    let temp_name = format!("_packReExport{}", re_export_index);
+                    final_module.body.push(
+                      const_var_decl(
+                        temp_name.clone(),
+                        Expr::Member(member_x_y(
+                          re_export.module_id.to_code_string(),
+                          name.to_string(),
+                        )),
+                      )
+                      .into(),
+                    );
+                    final_module
+                      .body
+                      .push(export_x_as_y(temp_name, name.to_string()));
+                  }
+                }
+              }
+            }
           } else {
-            if module_data.has_tla {
-              final_text.push_str("await (async () => {\n");
-            } else {
-              final_text.push_str("(() => {\n");
-            }
-            if !module_text.is_empty() {
-              final_text.push_str(&format!("{}\n", module_text));
-            }
+            let mut stmts = module
+              .body
+              .into_iter()
+              .map(|item| match item {
+                ModuleItem::ModuleDecl(_) => unreachable!(),
+                ModuleItem::Stmt(stmt) => stmt,
+              })
+              .collect::<Vec<_>>();
             let code_string = module_data.id.to_code_string();
             let mut export_names = HashSet::with_capacity(
               module_data.exports.len() + module_data.re_exports.len(),
             );
             for export in &module_data.exports {
-              final_text.push_str(&format!(
-                "Object.defineProperty({}, \"{}\", {{ get: () => {} }});\n",
-                code_string,
-                export.export_name(),
-                export.local_name
+              stmts.push(object_define_property(
+                code_string.clone(),
+                export.export_name().to_string(),
+                ident(export.local_name.clone()).into(),
               ));
               export_names.insert(export.export_name());
             }
             for re_export in &module_data.re_exports {
               match &re_export.name {
                 ReExportName::Named(name) => {
-                  final_text.push_str(&format!(
-                    "Object.defineProperty({}, \"{}\", {{ get: () => {}.{} }});\n",
-                    code_string,
-                    name.export_name(),
-                    re_export.module_id.to_code_string(),
-                    name.local_name,
+                  stmts.push(object_define_property(
+                    code_string.clone(),
+                    name.export_name().to_string(),
+                    member_x_y(
+                      re_export.module_id.to_code_string(),
+                      name.local_name.to_string(),
+                    )
+                    .into(),
                   ));
                   export_names.insert(name.export_name());
                 }
                 ReExportName::Namespace(name) => {
-                  final_text.push_str(&format!(
-                    "Object.defineProperty({}, \"{}\", {{ get: () => {}.{} }});\n",
-                    code_string,
-                    name,
-                    re_export.module_id.to_code_string(),
-                    name,
+                  stmts.push(object_define_property(
+                    code_string.clone(),
+                    name.to_string(),
+                    ident(re_export.module_id.to_code_string()).into(),
                   ));
                   export_names.insert(name);
                 }
@@ -389,24 +498,70 @@ pub fn pack(
                   context.module_data.get_export_names(&re_export.specifier);
                 for name in &re_export_names {
                   if !export_names.contains(&name) {
-                    final_text.push_str(&format!(
-                    "Object.defineProperty({}, \"{}\", {{ get: () => {}.{} }});\n",
-                    code_string,
-                    name,
-                    re_export.module_id.to_code_string(),
-                    name
-                  ));
+                    stmts.push(object_define_property(
+                      code_string.clone(),
+                      name.clone(),
+                      member_x_y(
+                        re_export.module_id.to_code_string(),
+                        name.clone(),
+                      )
+                      .into(),
+                    ));
                   }
                 }
               }
             }
-            final_text.push_str("})();\n");
+            let fn_expr = FnExpr {
+              ident: Some(ident(specifier_id)),
+              function: Box::new(Function {
+                params: Vec::new(),
+                decorators: Vec::new(),
+                span: DUMMY_SP,
+                body: Some(BlockStmt {
+                  span: DUMMY_SP,
+                  stmts,
+                }),
+                is_generator: false,
+                is_async: module_data.has_tla,
+                type_params: None,
+                return_type: None,
+              }),
+            };
+            let iife = Expr::Call(CallExpr {
+              span: DUMMY_SP,
+              callee: Callee::Expr(Box::new(Expr::Paren(ParenExpr {
+                span: DUMMY_SP,
+                expr: Box::new(Expr::Fn(fn_expr)),
+              }))),
+              args: vec![],
+              type_args: None,
+            });
+            let expr = if module_data.has_tla {
+              Expr::Await(AwaitExpr {
+                span: DUMMY_SP,
+                arg: Box::new(iife),
+              })
+            } else {
+              iife
+            };
+            final_module
+              .body
+              .push(ModuleItem::Stmt(Stmt::Expr(ExprStmt {
+                span: DUMMY_SP,
+                expr: expr.into(),
+              })));
           }
         }
       }
     }
     Result::<(), anyhow::Error>::Ok(())
   })?;
+
+  final_text.push_str(&print_program(
+    &final_module,
+    &source_map,
+    &global_comments,
+  )?);
 
   Ok(final_text)
 }
@@ -416,9 +571,9 @@ struct HasAwaitKeywordVisitor {
 }
 
 impl HasAwaitKeywordVisitor {
-  fn has_await_keyword(node: &Stmt) -> bool {
+  fn has_await_keyword(node: &impl VisitWith<HasAwaitKeywordVisitor>) -> bool {
     let mut visitor = HasAwaitKeywordVisitor { found: false };
-    visitor.visit_stmt(node);
+    node.visit_with(&mut visitor);
     visitor.found
   }
 }
@@ -433,10 +588,6 @@ impl Visit for HasAwaitKeywordVisitor {
   }
 
   fn visit_class_method(&mut self, n: &ClassMethod) {
-    // stop
-  }
-
-  fn visit_decl(&mut self, n: &Decl) {
     // stop
   }
 
@@ -531,12 +682,16 @@ fn analyze_esm_module(
         }
         ModuleDecl::ExportDefaultDecl(_)
         | ModuleDecl::ExportDefaultExpr(_)
-        | ModuleDecl::ExportDecl(_)
         | ModuleDecl::ExportNamed(_)
         | ModuleDecl::ExportAll(_)
         | ModuleDecl::TsImportEquals(_)
         | ModuleDecl::TsExportAssignment(_)
         | ModuleDecl::TsNamespaceExport(_) => {}
+        ModuleDecl::ExportDecl(decl) => {
+          if !found_tla && HasAwaitKeywordVisitor::has_await_keyword(decl) {
+            found_tla = true;
+          }
+        }
       },
     }
   }

@@ -13,19 +13,19 @@ console.log(wasmInstance);
 
 # output.js
 const pack0 = {
-  instantiate: undefined,
-  wasmInstance: undefined,
+    instantiate: undefined,
+    wasmInstance: undefined
 };
-
-// wasm.ts
-await (async () => {
-function instantiate() {}
-const wasmInstance = await instantiate({
-    url: await getWasmFileUrl()
-});
-Object.defineProperty(pack0, "instantiate", { get: () => instantiate });
-Object.defineProperty(pack0, "wasmInstance", { get: () => wasmInstance });
+await (async function wasm_ts() {
+    function instantiate() {}
+    const wasmInstance = await instantiate({
+        url: await getWasmFileUrl()
+    });
+    Object.defineProperty(pack0, "instantiate", {
+        get: ()=>instantiate
+    });
+    Object.defineProperty(pack0, "wasmInstance", {
+        get: ()=>wasmInstance
+    });
 })();
-
-// mod.ts
 console.log(pack0.wasmInstance);

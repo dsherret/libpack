@@ -5,7 +5,6 @@ export class Vector {
 }
 
 # output.js
-// mod.ts
 export class Vector {
     x;
     y;

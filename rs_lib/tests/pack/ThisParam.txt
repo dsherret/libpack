@@ -9,7 +9,6 @@ function test2(this: Test) {
 }
 
 # output.js
-// mod.ts
 function exported(testing) {}
 const test = function(ctx) {};
 function test2() {}

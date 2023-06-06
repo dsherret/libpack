@@ -12,16 +12,14 @@ console.log(path.join);
 
 # output.js
 const pack0 = {
-  path: undefined,
+    path: undefined
 };
 import * as pack2 from "https://deno.land/std@0.182.0/path/mod.ts";
-
-// deps.ts
-(() => {
-Object.defineProperty(pack0, "path", { get: () => pack2 });
+(function deps_ts() {
+    Object.defineProperty(pack0, "path", {
+        get: ()=>pack2
+    });
 })();
-
-// mod.ts
 console.log(pack0.path.join);
 const _packReExport1 = pack0;
 export { _packReExport1 as deps };

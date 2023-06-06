@@ -26,35 +26,37 @@ export function modifyValue() {
 
 # output.js
 const pack0 = {
-  getValue: undefined,
-  modifyValue: undefined,
+    getValue: undefined,
+    modifyValue: undefined
 };
 const pack2 = {
-  b: undefined,
-  modifyValue: undefined,
+    b: undefined,
+    modifyValue: undefined
 };
-
-// b.ts
-(() => {
-let b = 5;
-function modifyValue() {
-    b = 2;
-    console.log(pack0.getValue());
-}
-Object.defineProperty(pack2, "b", { get: () => b });
-Object.defineProperty(pack2, "modifyValue", { get: () => modifyValue });
+(function b_ts() {
+    let b = 5;
+    function modifyValue() {
+        b = 2;
+        console.log(pack0.getValue());
+    }
+    Object.defineProperty(pack2, "b", {
+        get: ()=>b
+    });
+    Object.defineProperty(pack2, "modifyValue", {
+        get: ()=>modifyValue
+    });
 })();
-
-// a.ts
-(() => {
-function getValue() {
-    return pack2.b;
-}
-Object.defineProperty(pack0, "getValue", { get: () => getValue });
-Object.defineProperty(pack0, "modifyValue", { get: () => pack2.modifyValue });
+(function a_ts() {
+    function getValue() {
+        return pack2.b;
+    }
+    Object.defineProperty(pack0, "getValue", {
+        get: ()=>getValue
+    });
+    Object.defineProperty(pack0, "modifyValue", {
+        get: ()=>pack2.modifyValue
+    });
 })();
-
-// mod.ts
 console.log(pack0.getValue());
 pack0.modifyValue();
 console.log(pack0.getValue());
