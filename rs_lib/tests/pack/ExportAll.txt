@@ -61,7 +61,6 @@ Object.defineProperty(pack0, "myValue2", { get: () => pack2.myValue2 });
 const obj = {
     myValue1: pack0.myValue1
 };
-
 console.log(pack0.myValue1);
 console.log(pack0.myValue2);
 console.log(pack0.Test.Value);

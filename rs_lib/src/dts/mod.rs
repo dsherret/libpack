@@ -28,8 +28,10 @@ use deno_graph::ModuleParser;
 use crate::console_log;
 use crate::dts::analyzer::ModuleAnalyzer;
 use crate::helpers::adjust_spans;
+use crate::helpers::fill_leading_comments;
 use crate::helpers::ident;
 use crate::helpers::is_remote;
+use crate::helpers::print_program;
 use crate::helpers::ts_keyword_type;
 
 use self::analyzer::has_internal_jsdoc;
@@ -132,29 +134,16 @@ pub fn pack_dts(
           // Add the file's leading comments to the global comment map.
           // We don't have to deal with the trailing comments because
           // we're only interested in jsdocs
-          for (byte_pos, comment_vec) in parsed_source.comments().leading_map()
-          {
-            let byte_pos = source_file.start_pos + *byte_pos;
-            for comment in comment_vec {
-              // only include js docs
-              if comment.kind == CommentKind::Block
+          fill_leading_comments(
+            source_file.start_pos,
+            &parsed_source,
+            &global_comments,
+            // only include js docs
+            |comment| {
+              comment.kind == CommentKind::Block
                 && comment.text.starts_with('*')
-              {
-                global_comments.add_leading(
-                  byte_pos,
-                  Comment {
-                    kind: comment.kind,
-                    span: Span::new(
-                      source_file.start_pos + comment.span.lo,
-                      source_file.start_pos + comment.span.hi,
-                      comment.span.ctxt,
-                    ),
-                    text: comment.text.clone(),
-                  },
-                );
-              }
-            }
-          }
+            },
+          );
           final_module.body.extend(module.body);
         }
       }
@@ -163,30 +152,7 @@ pub fn pack_dts(
 
   final_module.body.splice(0..0, remote_module_items);
 
-  let mut src_map_buf = vec![];
-  let mut buf = vec![];
-  {
-    let writer = Box::new(JsWriter::new(
-      source_map.clone(),
-      "\n",
-      &mut buf,
-      Some(&mut src_map_buf),
-    ));
-    let config = codegen::Config {
-      minify: false,
-      ascii_only: false,
-      omit_last_semi: false,
-      target: deno_ast::ES_VERSION,
-    };
-    let mut emitter = codegen::Emitter {
-      cfg: config,
-      comments: Some(&global_comments),
-      cm: source_map.clone(),
-      wr: writer,
-    };
-    final_module.emit_with(&mut emitter)?;
-  }
-  Ok(String::from_utf8(buf)?)
+  print_program(&final_module, &source_map, &global_comments)
 }
 
 struct ReExportName(String);

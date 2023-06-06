@@ -1,50 +1,34 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
-use std::ops::Range;
 use std::rc::Rc;
-use std::sync::Arc;
 
-use deno_ast::apply_text_changes;
-use deno_ast::parse_module;
 use deno_ast::swc::ast::Id;
 use deno_ast::swc::ast::*;
-use deno_ast::swc::codegen;
-use deno_ast::swc::codegen::text_writer::JsWriter;
-use deno_ast::swc::codegen::Node;
 use deno_ast::swc::common::comments::SingleThreadedComments;
 use deno_ast::swc::common::util::take::Take;
 use deno_ast::swc::common::FileName;
 use deno_ast::swc::common::Mark;
 use deno_ast::swc::common::SourceMap;
 use deno_ast::swc::common::DUMMY_SP;
-use deno_ast::swc::parser::token::Keyword;
-use deno_ast::swc::parser::token::Token;
-use deno_ast::swc::parser::token::TokenAndSpan;
-use deno_ast::swc::parser::token::Word;
 use deno_ast::swc::visit::*;
 use deno_ast::Diagnostic;
 use deno_ast::EmitOptions;
 use deno_ast::MediaType;
 use deno_ast::ModuleSpecifier;
 use deno_ast::ParseParams;
-use deno_ast::ParsedSource;
-use deno_ast::SourceRange;
-use deno_ast::SourceRanged;
-use deno_ast::SourceRangedForSpanned;
 use deno_ast::SourceTextInfo;
-use deno_ast::SourceTextInfoProvider;
-use deno_ast::StartSourcePos;
-use deno_ast::TextChange;
 use deno_graph::CapturingModuleParser;
 use deno_graph::EsmModule;
-use deno_graph::JsonModule;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleParser;
 use deno_graph::WalkOptions;
 
 use crate::helpers::adjust_spans;
+use crate::helpers::fill_leading_comments;
+use crate::helpers::fill_trailing_comments;
 use crate::helpers::ident;
+use crate::helpers::print_program;
 
 #[derive(Default)]
 struct ModuleDataCollection {
@@ -305,6 +289,13 @@ pub fn pack(
           );
           adjust_spans(source_file.start_pos, &mut module);
           let global_comments = SingleThreadedComments::default();
+          fill_leading_comments(
+            source_file.start_pos,
+            &parsed_source,
+            &global_comments,
+            |_| true,
+          );
+          fill_trailing_comments(source_file.start_pos, &parsed_source, &global_comments);
           let program = deno_ast::fold_program(
             Program::Module(module),
             &EmitOptions::default(),
@@ -313,30 +304,11 @@ pub fn pack(
             top_level_mark,
             parsed_source.diagnostics(),
           )?;
-          let mut src_map_buf = vec![];
-          let mut buf = vec![];
-          {
-            let writer = Box::new(JsWriter::new(
-              source_map.clone(),
-              "\n",
-              &mut buf,
-              Some(&mut src_map_buf),
-            ));
-            let config = codegen::Config {
-              minify: false,
-              ascii_only: false,
-              omit_last_semi: false,
-              target: deno_ast::ES_VERSION,
-            };
-            let mut emitter = codegen::Emitter {
-              cfg: config,
-              comments: Some(&global_comments),
-              cm: source_map.clone(),
-              wr: writer,
-            };
-            program.emit_with(&mut emitter)?;
-          }
-          String::from_utf8(buf)?
+          print_program(
+            &program,
+            &source_map,
+            &global_comments,
+          )?
         };
         let module_data = context.module_data.get(specifier).unwrap();
         let module_text = module_text.trim();

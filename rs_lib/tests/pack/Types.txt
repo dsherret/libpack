@@ -24,7 +24,7 @@ export class Test<T> implements Other extends Other2<T> {
   override #f!: number;
   #g?: ResponseBody | ResponseBodyFunction;
 
-  constructor(public a: string, protected b: number, private c, readonly d?: string, override e: number = 2) {
+  constructor(public a1: string, protected b1: number, private c1, readonly d1?: string, override e1: number = 2) {
     super();
   }
 }
@@ -45,10 +45,14 @@ function test(test) {
     return test;
 }
 export let Test = class Test extends Other2 {
+    a1;
+    b1;
+    c1;
+    d1;
+    e1;
     a;
     b;
     c;
-    d;
     e;
     f;
     #a;
@@ -57,8 +61,13 @@ export let Test = class Test extends Other2 {
     #e;
     #f;
     #g;
-    constructor(a, b, c, d, e = 2){
+    constructor(a1, b1, c1, d1, e1 = 2){
         super();
+        this.a1 = a1;
+        this.b1 = b1;
+        this.c1 = c1;
+        this.d1 = d1;
+        this.e1 = e1;
     }
 };
 Test = _ts_decorate([

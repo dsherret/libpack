@@ -30,7 +30,7 @@ Object.defineProperty(pack0, "a", { get: () => a });
 })();
 
 // mod.ts
-var Testing;
+let Testing;
 (function(Testing) {
     let ThisOut;
     (function(ThisOut) {
@@ -43,7 +43,7 @@ var Testing;
     })(ThisOut = Testing.ThisOut || (Testing.ThisOut = {}));
 })(Testing || (Testing = {}));
 (function(Testing1) {
-    let ThisOut;
+    var ThisOut;
     (function(ThisOut) {
         console.log(Testing.Test.Value1);
     })(ThisOut = Testing1.ThisOut || (Testing1.ThisOut = {}));

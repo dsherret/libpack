@@ -23,15 +23,18 @@ const pack0 = {
 
 // logger.ts
 (() => {
-const logger = { log(...args) { console.log(...args); }};
+const logger = {
+    log (...args) {
+        console.log(...args);
+    }
+};
 Object.defineProperty(pack0, "logger", { get: () => logger });
 })();
 
 // mod.ts
 const myLogger = {
-  log(...args) {
-    pack0.logger.log(...args);
-  }
-}
-
+    log (...args) {
+        pack0.logger.log(...args);
+    }
+};
 console.log(myLogger.log("Hello"));

@@ -15,12 +15,8 @@ class MyTest {
 
 # output.js
 // mod.ts
-export function exported() {
-}
-function test() {
-}
-
+export function exported() {}
+function test() {}
 class MyTest {
-  method() {
-  }
+    method() {}
 }
