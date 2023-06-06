@@ -181,7 +181,9 @@ pub fn pack(
 
   // todo: this is not correct. It should output by walking the graph
   // in the order that the loader does
-  let mut ordered_specifiers: Vec<(&ModuleSpecifier, &deno_graph::Module)> =
+  let mut remote_specifiers: Vec<(&ModuleSpecifier, &deno_graph::Module)> =
+    Default::default();
+  let mut local_specifiers: Vec<(&ModuleSpecifier, &deno_graph::Module)> =
     Default::default();
 
   let mut modules = graph.walk(
@@ -200,23 +202,25 @@ pub fn pack(
     }
     let module = graph.get(specifier).unwrap();
     let specifier = module.specifier();
+    if is_file {
+      local_specifiers.push((specifier, module));
+    } else {
+      remote_specifiers.push((specifier, module));
+    }
     match module {
       deno_graph::Module::Esm(esm) => {
-        ordered_specifiers.push((specifier, module));
         if options.include_remote || is_file {
           analyze_esm_module(esm, &mut context)?;
         }
       }
-      deno_graph::Module::Json(_) => {
-        ordered_specifiers.push((specifier, module));
-      }
+      deno_graph::Module::Json(_) => {}
       _ => {
         todo!();
       }
     }
   }
 
-  let root_dir = get_root_dir(ordered_specifiers.iter().map(|(s, _)| *s));
+  let root_dir = get_root_dir(local_specifiers.iter().map(|(s, _)| *s));
   let global_comments = SingleThreadedComments::default();
   let source_map = Rc::new(SourceMap::default());
   let mut final_module = Module {
@@ -225,7 +229,9 @@ pub fn pack(
     shebang: None,
   };
   let mut final_text = String::new();
-  for (specifier, module) in &ordered_specifiers {
+  for (specifier, module) in
+    remote_specifiers.iter().chain(local_specifiers.iter())
+  {
     if specifier.scheme() != "file" {
       let module_data = context.module_data.get_mut(specifier);
       final_module
@@ -285,6 +291,7 @@ pub fn pack(
           }
           None => specifier.as_str(),
         };
+        // todo: use swc here too
         final_text.push_str(&format!(
           "// {}\nconst {} = {{\n  default: {}\n}};\n",
           displayed_specifier,
@@ -297,7 +304,11 @@ pub fn pack(
 
   let globals = deno_ast::swc::common::Globals::new();
   deno_ast::swc::common::GLOBALS.set(&globals, || {
-    for (specifier, module) in ordered_specifiers.iter().rev() {
+    for (specifier, module) in remote_specifiers
+      .iter()
+      .rev()
+      .chain(local_specifiers.iter().rev())
+    {
       if !options.include_remote && specifier.scheme() != "file" {
         continue;
       }
