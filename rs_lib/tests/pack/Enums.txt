@@ -12,16 +12,16 @@ export const a = 2;
 
 # output.js
 const pack0 = {
-    a: undefined
+  a: undefined
 };
 (function a_js() {
-    const a = 2;
-    Object.defineProperty(pack0, "a", {
-        get: ()=>a
-    });
+  const a = 2;
+  Object.defineProperty(pack0, "a", {
+    get: ()=>a
+  });
 })();
 let Testing;
 (function(Testing) {
-    Testing[Testing["Value"] = pack0.a] = "Value";
+  Testing[Testing["Value"] = pack0.a] = "Value";
 })(Testing || (Testing = {}));
 console.log(Testing.Value);

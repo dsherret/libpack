@@ -18,21 +18,21 @@ export const logger: Logger = { log(...args: any[]) { console.log(...args); }};
 
 # output.js
 const pack0 = {
-    logger: undefined
+  logger: undefined
 };
 (function logger_ts() {
-    const logger = {
-        log (...args) {
-            console.log(...args);
-        }
-    };
-    Object.defineProperty(pack0, "logger", {
-        get: ()=>logger
-    });
+  const logger = {
+    log (...args) {
+      console.log(...args);
+    }
+  };
+  Object.defineProperty(pack0, "logger", {
+    get: ()=>logger
+  });
 })();
 const myLogger = {
-    log (...args) {
-        pack0.logger.log(...args);
-    }
+  log (...args) {
+    pack0.logger.log(...args);
+  }
 };
 console.log(myLogger.log("Hello"));

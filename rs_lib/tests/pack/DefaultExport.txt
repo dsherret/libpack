@@ -29,42 +29,42 @@ export default function() {}
 
 # output.js
 const pack1 = {
-    default: undefined
+  default: undefined
 };
 const pack2 = {
-    default: undefined
+  default: undefined
 };
 const pack3 = {
-    default: undefined
+  default: undefined
 };
 const pack4 = {
-    default: undefined
+  default: undefined
 };
 (function e_ts() {
-    const __pack_default__ = function() {};
-    Object.defineProperty(pack4, "default", {
-        get: ()=>__pack_default__
-    });
+  const __pack_default__ = function() {};
+  Object.defineProperty(pack4, "default", {
+    get: ()=>__pack_default__
+  });
 })();
 (function d_ts() {
-    const d = function d() {};
-    Object.defineProperty(pack3, "default", {
-        get: ()=>d
-    });
+  const d = function d() {};
+  Object.defineProperty(pack3, "default", {
+    get: ()=>d
+  });
 })();
 (function c_ts() {
-    const __pack_default__ = class {
-    };
-    Object.defineProperty(pack2, "default", {
-        get: ()=>__pack_default__
-    });
+  const __pack_default__ = class {
+  };
+  Object.defineProperty(pack2, "default", {
+    get: ()=>__pack_default__
+  });
 })();
 (function b_ts() {
-    const B = class B {
-    };
-    Object.defineProperty(pack1, "default", {
-        get: ()=>B
-    });
+  const B = class B {
+  };
+  Object.defineProperty(pack1, "default", {
+    get: ()=>B
+  });
 })();
 console.log(pack1.default);
 console.log(pack2.default);

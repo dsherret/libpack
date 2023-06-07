@@ -13,18 +13,18 @@ export { a, b };
 
 # output.js
 const pack0 = {
-    a: undefined,
-    b: undefined
+  a: undefined,
+  b: undefined
 };
 (function a_ts() {
-    const a = 1;
-    const b = 2;
-    Object.defineProperty(pack0, "a", {
-        get: ()=>a
-    });
-    Object.defineProperty(pack0, "b", {
-        get: ()=>b
-    });
+  const a = 1;
+  const b = 2;
+  Object.defineProperty(pack0, "a", {
+    get: ()=>a
+  });
+  Object.defineProperty(pack0, "b", {
+    get: ()=>b
+  });
 })();
 console.log(pack0.a);
 console.log(pack0.b);

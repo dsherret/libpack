@@ -148,12 +148,13 @@ pub fn print_program(
   let mut src_map_buf = vec![];
   let mut buf = vec![];
   {
-    let writer = Box::new(JsWriter::new(
+    let mut writer = Box::new(JsWriter::new(
       source_map.clone(),
       "\n",
       &mut buf,
       Some(&mut src_map_buf),
     ));
+    writer.set_indent_str("  ");
     let config = codegen::Config {
       minify: false,
       ascii_only: false,

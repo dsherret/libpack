@@ -20,23 +20,23 @@ export { Test, a } from "./c.ts";
 
 # output.d.ts
 declare module pack2 {
-    const test1: string;
-    const test2: number, test3: number;
-    const test4: number;
-    const test5: number;
-    export { test1, test2, test3 };
-    export { test4, test5 };
+  const test1: string;
+  const test2: number, test3: number;
+  const test4: number;
+  const test5: number;
+  export { test1, test2, test3 };
+  export { test4, test5 };
 }
 declare module pack3 {
-    export class Test {
-    }
+  export class Test {
+  }
 }
 declare module pack1 {
-    import __export1 = pack2;
-    export { __export1 as a };
-    import __export2 = pack3.Test;
-    export { __export2 as Test };
-    const __packTsUnder5_2_Workaround__: unknown;
+  import __export1 = pack2;
+  export { __export1 as a };
+  import __export2 = pack3.Test;
+  export { __export2 as Test };
+  const __packTsUnder5_2_Workaround__: unknown;
 }
 import __export1 = pack1.Test;
 export { __export1 as Test };

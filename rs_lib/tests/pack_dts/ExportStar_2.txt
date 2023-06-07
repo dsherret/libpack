@@ -15,19 +15,19 @@ export class B {}
 
 # output.d.ts
 declare module pack2 {
-    export class A {
-    }
+  export class A {
+  }
 }
 declare module pack3 {
-    export class B {
-    }
+  export class B {
+  }
 }
 declare module pack1 {
-    import __export1 = pack2.A;
-    export { __export1 as A };
-    import __export2 = pack3.B;
-    export { __export2 as B };
-    const __packTsUnder5_2_Workaround__: unknown;
+  import __export1 = pack2.A;
+  export { __export1 as A };
+  import __export2 = pack3.B;
+  export { __export2 as B };
+  const __packTsUnder5_2_Workaround__: unknown;
 }
 import fs = pack1;
 export { fs };

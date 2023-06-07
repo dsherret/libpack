@@ -67,10 +67,10 @@ export function c(test?: string): unknown;
 export function d<const T extends 5>(): T;
 export function e(other?: boolean): void;
 interface ExtrasObject {
-    prop: string;
+  prop: string;
 }
 interface CreateOptions<T> {
-    extras: T;
+  extras: T;
 }
 export function f<TExtras extends ExtrasObject = {
 }>(options?: CreateOptions<TExtras>): void;
@@ -78,7 +78,7 @@ export function g(): Promise<void>;
 export function h(): Promise<number>;
 export function i(): Promise<unknown>;
 export function j(): Promise<unknown>;
-export function k(a: number, { b , c , d  }?: WalkOptions): AsyncIterableIterator<string>;
+export function k(a: number, { b, c, d }?: WalkOptions): AsyncIterableIterator<string>;
 export function l(): Generator<unknown, void, unknown>;
 export function m(value: string): number;
 export function m(value: number): string;

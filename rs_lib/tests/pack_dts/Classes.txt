@@ -88,38 +88,38 @@ class InternalOnSignature {}
 # output.d.ts
 import Other = pack1.Other;
 declare class Dep {
-    prop: string;
-    other: Other;
+  prop: string;
+  other: Other;
 }
 declare const symbol: Symbol;
 /**
  * My test class
  */ export class Test {
-    #private;
-    readonly text: string;
-    readonly otherProp: boolean;
-    a?: string;
-    prop?: string;
-    other: number;
-    private myPrivateProp;
-    someDep: Dep;
-    constructor(text: string, otherProp?: boolean, a?: string);
-    [symbol](): number;
-    method(value?: boolean): unknown;
-    protected test(): string;
-    private otherMethod;
-    bytes(options?: {
-        copy?: boolean;
-    }): Uint8Array;
-    header(name: string): this;
-    header(value: number): this;
+  #private;
+  readonly text: string;
+  readonly otherProp: boolean;
+  a?: string;
+  prop?: string;
+  other: number;
+  private myPrivateProp;
+  someDep: Dep;
+  constructor(text: string, otherProp?: boolean, a?: string);
+  [symbol](): number;
+  method(value?: boolean): unknown;
+  protected test(): string;
+  private otherMethod;
+  bytes(options?: {
+    copy?: boolean;
+  }): Uint8Array;
+  header(name: string): this;
+  header(value: number): this;
 }
 export class OtherClass {
-    constructor(value: string);
-    constructor(value: number);
+  constructor(value: string);
+  constructor(value: number);
 }
 declare module pack1 {
-    export class Other {
-        prop: string;
-    }
+  export class Other {
+    prop: string;
+  }
 }

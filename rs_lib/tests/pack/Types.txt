@@ -31,44 +31,44 @@ export class Test<T> implements Other extends Other2<T> {
 
 # output.js
 function _ts_decorate(decorators, target, key, desc) {
-    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
-    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
-    else for(var i = decorators.length - 1; i >= 0; i--)if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
-    return c > 3 && r && Object.defineProperty(target, key, r), r;
+  var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+  if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+  else for(var i = decorators.length - 1; i >= 0; i--)if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+  return c > 3 && r && Object.defineProperty(target, key, r), r;
 }
 const test = 5;
 function test(test) {
-    const test = 5;
-    const asdf = obj.test;
-    f, g;
-    return test;
+  const test = 5;
+  const asdf = obj.test;
+  f, g;
+  return test;
 }
 export let Test = class Test extends Other2 {
-    a1;
-    b1;
-    c1;
-    d1;
-    e1;
-    a;
-    b;
-    c;
-    e;
-    f;
-    #a;
-    #b;
-    #c;
-    #e;
-    #f;
-    #g;
-    constructor(a1, b1, c1, d1, e1 = 2){
-        super();
-        this.a1 = a1;
-        this.b1 = b1;
-        this.c1 = c1;
-        this.d1 = d1;
-        this.e1 = e1;
-    }
+  a1;
+  b1;
+  c1;
+  d1;
+  e1;
+  a;
+  b;
+  c;
+  e;
+  f;
+  #a;
+  #b;
+  #c;
+  #e;
+  #f;
+  #g;
+  constructor(a1, b1, c1, d1, e1 = 2){
+    super();
+    this.a1 = a1;
+    this.b1 = b1;
+    this.c1 = c1;
+    this.d1 = d1;
+    this.e1 = e1;
+  }
 };
 Test = _ts_decorate([
-    decs()
+  decs()
 ], Test);

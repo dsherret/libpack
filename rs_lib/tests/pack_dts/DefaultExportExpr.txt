@@ -16,12 +16,12 @@ export default $;
 
 # output.d.ts
 declare module pack1 {
-    const a: number;
-    export { a as __default };
+  const a: number;
+  export { a as __default };
 }
 declare module pack2 {
-    const b: number;
-    export { b as __default };
+  const b: number;
+  export { b as __default };
 }
 import b = pack2.__default;
 import c = pack2.__default;

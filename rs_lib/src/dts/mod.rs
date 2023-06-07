@@ -2,17 +2,10 @@ use std::collections::HashSet;
 use std::rc::Rc;
 
 use deno_ast::swc::ast::*;
-use deno_ast::swc::codegen;
-use deno_ast::swc::codegen::text_writer::JsWriter;
-use deno_ast::swc::codegen::Node;
-use deno_ast::swc::common::comments::Comment;
 use deno_ast::swc::common::comments::CommentKind;
-use deno_ast::swc::common::comments::Comments;
 use deno_ast::swc::common::comments::SingleThreadedComments;
-use deno_ast::swc::common::BytePos;
 use deno_ast::swc::common::FileName;
 use deno_ast::swc::common::SourceMap;
-use deno_ast::swc::common::Span;
 use deno_ast::swc::common::Spanned;
 use deno_ast::swc::common::DUMMY_SP;
 use deno_ast::swc::visit::*;

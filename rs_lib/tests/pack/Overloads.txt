@@ -17,5 +17,5 @@ class MyTest {
 export function exported() {}
 function test() {}
 class MyTest {
-    method() {}
+  method() {}
 }

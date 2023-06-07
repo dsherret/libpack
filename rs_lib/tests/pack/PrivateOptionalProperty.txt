@@ -16,14 +16,14 @@ export class Response {
 # output.js
 // this is from oak
 export class Response {
-    #body;
-    #bodySet = false;
-    #domResponse;
-    #headers = new Headers();
-    #jsonBodyReplacer;
-    #request;
-    #resources = [];
-    #status;
-    #type;
-    #writable = true;
+  #body;
+  #bodySet = false;
+  #domResponse;
+  #headers = new Headers();
+  #jsonBodyReplacer;
+  #request;
+  #resources = [];
+  #status;
+  #type;
+  #writable = true;
 }

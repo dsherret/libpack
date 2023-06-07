@@ -12,11 +12,11 @@ export enum MyNumberEnum {
 
 # output.d.ts
 export enum MyStringEnum {
-    Prop = "value",
-    Next = "asdf"
+  Prop = "value",
+  Next = "asdf"
 }
 export enum MyNumberEnum {
-    A,
-    B,
-    C = 2
+  A,
+  B,
+  C = 2
 }

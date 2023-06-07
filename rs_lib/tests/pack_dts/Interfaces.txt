@@ -6,6 +6,6 @@ export interface Test<T extends string> {
 
 # output.d.ts
 export interface Test<T extends string> {
-    prop: string;
-    method(prop: number): void;
+  prop: string;
+  method(prop: number): void;
 }
