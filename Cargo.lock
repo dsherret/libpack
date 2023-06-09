@@ -458,6 +458,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb56e1aa765b4b4f3aadfab769793b7087bb03a4ea4920644a6d238e2df5b9ed"
 
 [[package]]
+name = "import_map"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "632089ec08bd62e807311104122fb26d5c911ab172e2b9864be154a575979e29"
+dependencies = [
+ "cfg-if",
+ "indexmap",
+ "log",
+ "serde",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "indexmap"
 version = "1.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -494,6 +508,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f37a4a5928311ac501dee68b3c7613a1037d0edb30c8e5427bd832d55d1b790"
 dependencies = [
  "wasm-bindgen",
+]
+
+[[package]]
+name = "jsonc-parser"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b56a20e76235284255a09fcd1f45cf55d3c524ea657ebd3854735925c57743d"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -910,11 +933,14 @@ dependencies = [
  "deno_ast",
  "deno_graph",
  "futures",
+ "import_map",
  "indexmap",
  "js-sys",
+ "jsonc-parser",
  "pretty_assertions",
  "serde",
  "serde-wasm-bindgen",
+ "serde_json",
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",

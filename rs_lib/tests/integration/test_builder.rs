@@ -34,8 +34,9 @@ impl TestBuilder {
 
   pub async fn pack(&self) -> Result<String> {
     rs_pack(
-      PackOptions {
+      &PackOptions {
         entry_points: vec![self.entry_point.clone()],
+        import_map: None,
       },
       &mut self.loader.clone(),
     )
@@ -45,8 +46,9 @@ impl TestBuilder {
 
   pub async fn pack_dts(&self) -> Result<String> {
     rs_pack(
-      PackOptions {
+      &PackOptions {
         entry_points: vec![self.entry_point.clone()],
+        import_map: None,
       },
       &mut self.loader.clone(),
     )

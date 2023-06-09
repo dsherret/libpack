@@ -1,6 +1,11 @@
 {
+  "lock": false,
   "tasks": {
     "build": "deno task wasmbuild --skip-opt",
     "wasmbuild": "deno run -A https://deno.land/x/wasmbuild@0.14.1/main.ts"
-  }
+  },
+  "exclude": [
+    "target",
+    "lib"
+  ]
 }

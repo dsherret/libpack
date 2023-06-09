@@ -117,7 +117,7 @@ pub fn object_define_property(name: String, key: String, expr: Expr) -> Stmt {
   })
 }
 
-pub fn is_remote(specifier: &ModuleSpecifier) -> bool {
+pub fn is_remote_specifier(specifier: &ModuleSpecifier) -> bool {
   matches!(specifier.scheme(), "https" | "http")
 }
 

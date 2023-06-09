@@ -1,3 +1,4 @@
+use anyhow::Context;
 use deno_ast::ModuleSpecifier;
 use deno_graph::source::Loader;
 use deno_graph::CapturingModuleAnalyzer;
@@ -68,7 +69,7 @@ pub async fn pack(options: JsValue) -> Result<JsValue, JsValue> {
 
   let options: PackOptions = serde_wasm_bindgen::from_value(options).unwrap();
   let mut loader = JsLoader::default();
-  match rs_pack(options, &mut loader).await {
+  match rs_pack(&options, &mut loader).await {
     Ok(output) => Ok(serde_wasm_bindgen::to_value(&output).unwrap()),
     Err(err) => Err(format!("{:#}", err))?,
   }
@@ -78,6 +79,7 @@ pub async fn pack(options: JsValue) -> Result<JsValue, JsValue> {
 #[serde(rename_all = "camelCase")]
 pub struct PackOptions {
   pub entry_points: Vec<String>,
+  pub import_map: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -85,17 +87,29 @@ pub struct PackOptions {
 pub struct PackOutput {
   pub js: String,
   pub dts: String,
+  pub import_map: Option<String>,
 }
 
 pub async fn rs_pack(
-  options: PackOptions,
+  options: &PackOptions,
   loader: &mut dyn Loader,
 ) -> Result<PackOutput, anyhow::Error> {
   let mut graph = deno_graph::ModuleGraph::new(deno_graph::GraphKind::All);
-  let entry_points = parse_module_specifiers(options.entry_points)?;
+  let entry_points = parse_module_specifiers(&options.entry_points)?;
   let source_parser = DefaultModuleParser::new_for_analysis();
   let capturing_analyzer =
     CapturingModuleAnalyzer::new(Some(Box::new(source_parser)), None);
+  let maybe_import_map = match &options.import_map {
+    Some(import_map_url) => Some(
+      ImportMapResolver::load(
+        &ModuleSpecifier::parse(&import_map_url)?,
+        loader,
+      )
+      .await
+      .context("Error loading import map.")?,
+    ),
+    None => None,
+  };
   graph
     .build(
       entry_points,
@@ -103,7 +117,7 @@ pub async fn rs_pack(
       deno_graph::BuildOptions {
         is_dynamic: false,
         imports: vec![],
-        resolver: None,
+        resolver: maybe_import_map.as_ref().map(|r| r.as_resolver()),
         module_analyzer: Some(&capturing_analyzer),
         reporter: None,
         npm_resolver: None,
@@ -121,11 +135,15 @@ pub async fn rs_pack(
   )?;
   let dts = dts::pack_dts(&graph, &parser)?;
 
-  Ok(PackOutput { js, dts })
+  Ok(PackOutput {
+    js,
+    dts,
+    import_map: maybe_import_map.map(|r| r.0.to_json()),
+  })
 }
 
 fn parse_module_specifiers(
-  values: Vec<String>,
+  values: &[String],
 ) -> Result<Vec<ModuleSpecifier>, anyhow::Error> {
   let mut specifiers = Vec::new();
   for value in values {
@@ -133,4 +151,56 @@ fn parse_module_specifiers(
     specifiers.push(entry_point);
   }
   Ok(specifiers)
+}
+
+#[derive(Debug)]
+struct ImportMapResolver(import_map::ImportMap);
+
+impl ImportMapResolver {
+  pub async fn load(
+    import_map_url: &ModuleSpecifier,
+    loader: &mut dyn Loader,
+  ) -> anyhow::Result<Self> {
+    let response = loader
+      .load(import_map_url, false)
+      .await?
+      .ok_or_else(|| anyhow::anyhow!("Could not find {}", import_map_url))?;
+    match response {
+      deno_graph::source::LoadResponse::External { specifier } => {
+        anyhow::bail!("Did not expect external import map {}", specifier)
+      }
+      deno_graph::source::LoadResponse::Module {
+        content, specifier, ..
+      } => {
+        let value = jsonc_parser::parse_to_serde_value(
+          &content,
+          &jsonc_parser::ParseOptions {
+            allow_comments: true,
+            allow_loose_object_property_names: true,
+            allow_trailing_commas: true,
+          },
+        )?
+        .unwrap_or_else(|| serde_json::Value::Object(Default::default()));
+        let result = import_map::parse_from_value(&specifier, value)?;
+        Ok(ImportMapResolver(result.import_map))
+      }
+    }
+  }
+
+  pub fn as_resolver(&self) -> &dyn deno_graph::source::Resolver {
+    self
+  }
+}
+
+impl deno_graph::source::Resolver for ImportMapResolver {
+  fn resolve(
+    &self,
+    specifier: &str,
+    referrer: &ModuleSpecifier,
+  ) -> Result<ModuleSpecifier, anyhow::Error> {
+    self
+      .0
+      .resolve(specifier, referrer)
+      .map_err(|err| err.into())
+  }
 }

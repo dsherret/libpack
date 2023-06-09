@@ -7,9 +7,10 @@ use deno_graph::CapturingModuleParser;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleParser;
 use indexmap::IndexMap;
+use indexmap::IndexSet;
 
 use crate::console_log;
-use crate::helpers::is_remote;
+use crate::helpers::is_remote_specifier;
 
 use super::analyzer::FileDepName;
 use super::analyzer::ModuleAnalyzer;
@@ -255,7 +256,8 @@ fn trace_module<'a>(
   exports_to_trace: &ExportsToTrace,
 ) -> Result<()> {
   let mut pending = context.trace_exports(specifier, exports_to_trace)?;
-  let mut locally_imported_remote_urls = Vec::new();
+  let mut locally_imported_remote_urls = IndexSet::new();
+  let mut locally_imported_remote_default_urls = IndexSet::new();
 
   while let Some((specifier, symbol_id)) = pending.pop() {
     let module_symbol = context.analyzer.get_mut(&specifier).unwrap();
@@ -268,8 +270,15 @@ fn trace_module<'a>(
           /* prefer types */ true,
         );
         if let Some(dep_specifier) = maybe_dep_specifier {
-          if is_remote(&dep_specifier) && !is_remote(&specifier) {
-            locally_imported_remote_urls.push(dep_specifier.clone());
+          if is_remote_specifier(&dep_specifier)
+            && !is_remote_specifier(&specifier)
+          {
+            if file_dep.name.maybe_name() == Some("default") {
+              locally_imported_remote_default_urls
+                .insert(dep_specifier.clone());
+            } else {
+              locally_imported_remote_urls.insert(dep_specifier.clone());
+            }
           }
           if let Some(exports_to_trace) =
             context.pending_traces.get_mut(&dep_specifier)
@@ -303,6 +312,11 @@ fn trace_module<'a>(
     context.ensure_analyze(&specifier)?;
     let module_symbol = context.analyzer.get_mut(&specifier).unwrap();
     module_symbol.mark_is_locally_imported_remote();
+  }
+  for specifier in locally_imported_remote_default_urls {
+    context.ensure_analyze(&specifier)?;
+    let module_symbol = context.analyzer.get_mut(&specifier).unwrap();
+    module_symbol.mark_is_locally_imported_remote_default();
   }
 
   Ok(())

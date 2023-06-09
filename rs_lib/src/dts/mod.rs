@@ -23,7 +23,7 @@ use crate::dts::analyzer::ModuleAnalyzer;
 use crate::helpers::adjust_spans;
 use crate::helpers::fill_leading_comments;
 use crate::helpers::ident;
-use crate::helpers::is_remote;
+use crate::helpers::is_remote_specifier;
 use crate::helpers::print_program;
 use crate::helpers::ts_keyword_type;
 
@@ -54,12 +54,74 @@ pub fn pack_dts(
     shebang: None,
   };
   let mut remote_module_items = Vec::new();
+  let mut default_remote_module_items = Vec::new();
 
   for graph_module in graph.modules() {
     console_log!("Module: {}", graph_module.specifier());
-    if is_remote(graph_module.specifier()) {
+    if is_remote_specifier(graph_module.specifier()) {
       if let Some(module_symbol) = module_analyzer.get(graph_module.specifier())
       {
+        if module_symbol.is_locally_imported_remote_default() {
+          let temp_name = format!(
+            "{}DefaultImport",
+            module_symbol.module_id().to_code_string()
+          );
+          remote_module_items.push(ModuleItem::ModuleDecl(ModuleDecl::Import(
+            ImportDecl {
+              span: DUMMY_SP,
+              specifiers: vec![ImportSpecifier::Named(ImportNamedSpecifier {
+                span: DUMMY_SP,
+                imported: Some(ModuleExportName::Ident(ident(
+                  "default".to_string(),
+                ))),
+                local: ident(temp_name.clone()),
+                is_type_only: false,
+              })],
+              src: Box::new(Str {
+                span: DUMMY_SP,
+                value: graph_module.specifier().to_string().into(),
+                raw: None,
+              }),
+              type_only: false,
+              asserts: None,
+            },
+          )));
+          // This is done because `import something = defaultImport` is not valid
+          // because `defaultImport` is not a namespace, so instead we do:
+          //   import { default as pack1DefaultImport } from "...";
+          //   declare module pack1Default {
+          //     export { pack1DefaultImport as __default };
+          //   }
+          // Then downstream code will do `import something = pack1Default.__default`
+          default_remote_module_items.push(ModuleItem::Stmt(Stmt::Decl(
+            Decl::TsModule(Box::new(TsModuleDecl {
+              span: DUMMY_SP,
+              declare: true,
+              global: false,
+              id: ident(module_symbol.module_id().to_default_code_string())
+                .into(),
+              body: Some(TsNamespaceBody::TsModuleBlock(TsModuleBlock {
+                span: DUMMY_SP,
+                body: Vec::from([ModuleItem::ModuleDecl(
+                  ModuleDecl::ExportNamed(NamedExport {
+                    span: DUMMY_SP,
+                    specifiers: Vec::from([ExportSpecifier::Named(
+                      ExportNamedSpecifier {
+                        span: DUMMY_SP,
+                        orig: ident(temp_name).into(),
+                        exported: Some(ident("__default".to_string()).into()),
+                        is_type_only: false,
+                      },
+                    )]),
+                    src: None,
+                    type_only: false,
+                    asserts: None,
+                  }),
+                )]),
+              })),
+            })),
+          )))
+        }
         if module_symbol.is_locally_imported_remote() {
           remote_module_items.push(ModuleItem::ModuleDecl(ModuleDecl::Import(
             ImportDecl {
@@ -78,7 +140,7 @@ pub fn pack_dts(
               type_only: false,
               asserts: None,
             },
-          )))
+          )));
         }
       }
     } else {
@@ -143,7 +205,12 @@ pub fn pack_dts(
     }
   }
 
-  final_module.body.splice(0..0, remote_module_items);
+  final_module.body.splice(
+    0..0,
+    remote_module_items
+      .into_iter()
+      .chain(default_remote_module_items.into_iter()),
+  );
 
   print_program(&final_module, &source_map, &global_comments)
 }
@@ -652,6 +719,7 @@ impl<'a> VisitMut for DtsTransformer<'a> {
           if let Some(specifier) = maybe_specifier {
             if let Some(module_symbol) = self.module_analyzer.get(&specifier) {
               let module_id = module_symbol.module_id();
+              let is_remote = is_remote_specifier(&specifier);
               for specifier in &import_decl.specifiers {
                 match specifier {
                   ImportSpecifier::Named(named) => {
@@ -692,7 +760,11 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                             TsEntityName::TsQualifiedName(Box::new(
                               TsQualifiedName {
                                 left: TsEntityName::Ident(ident(
-                                  module_id.to_code_string(),
+                                  if is_remote && imported_name == "default" {
+                                    module_id.to_default_code_string()
+                                  } else {
+                                    module_id.to_code_string()
+                                  },
                                 )),
                                 right: ident(if imported_name == "default" {
                                   "__default".to_string()
@@ -735,7 +807,11 @@ impl<'a> VisitMut for DtsTransformer<'a> {
                             TsEntityName::TsQualifiedName(Box::new(
                               TsQualifiedName {
                                 left: TsEntityName::Ident(ident(
-                                  module_id.to_code_string(),
+                                  if is_remote {
+                                    module_id.to_default_code_string()
+                                  } else {
+                                    module_id.to_code_string()
+                                  },
                                 )),
                                 // can't use `.default` because it's a reserved word,
                                 // so use our custom `__default` instead

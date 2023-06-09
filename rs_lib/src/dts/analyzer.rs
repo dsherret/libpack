@@ -31,6 +31,10 @@ impl std::fmt::Debug for ModuleId {
 }
 
 impl ModuleId {
+  pub fn to_default_code_string(&self) -> String {
+    format!("pack{}Default", self.0)
+  }
+
   pub fn to_code_string(&self) -> String {
     format!("pack{}", self.0)
   }
@@ -40,6 +44,15 @@ impl ModuleId {
 pub enum FileDepName {
   Star,
   Name(String),
+}
+
+impl FileDepName {
+  pub fn maybe_name(&self) -> Option<&str> {
+    match self {
+      FileDepName::Name(name) => Some(name.as_str()),
+      FileDepName::Star => None,
+    }
+  }
 }
 
 #[derive(Debug)]
@@ -99,6 +112,7 @@ pub struct ModuleSymbol {
   symbols: HashMap<SymbolId, Symbol>,
   traced_re_exports: IndexMap<String, UniqueSymbol>,
   is_locally_imported_remote: bool,
+  is_locally_imported_remote_default: bool,
 }
 
 impl ModuleSymbol {
@@ -119,8 +133,16 @@ impl ModuleSymbol {
     self.is_locally_imported_remote
   }
 
+  pub fn is_locally_imported_remote_default(&self) -> bool {
+    self.is_locally_imported_remote_default
+  }
+
   pub fn mark_is_locally_imported_remote(&mut self) {
     self.is_locally_imported_remote = true;
+  }
+
+  pub fn mark_is_locally_imported_remote_default(&mut self) {
+    self.is_locally_imported_remote_default = true;
   }
 
   pub fn traced_re_exports(&self) -> &IndexMap<String, UniqueSymbol> {
@@ -248,6 +270,7 @@ impl ModuleAnalyzer {
       swc_id_to_symbol_id: Default::default(),
       symbols: Default::default(),
       is_locally_imported_remote: false,
+      is_locally_imported_remote_default: false,
     };
 
     let is_remote = {
@@ -513,7 +536,39 @@ impl<'a> SymbolFiller<'a> {
             }
           }
         }
-        ModuleDecl::ExportDefaultDecl(_) => todo!("export default decl"),
+        ModuleDecl::ExportDefaultDecl(default_decl) => {
+          let default_export_symbol_id =
+            file_module.ensure_default_export_symbol(default_decl.range());
+          let maybe_ident = match &default_decl.decl {
+            DefaultDecl::Class(expr) => expr.ident.as_ref(),
+            DefaultDecl::Fn(expr) => expr.ident.as_ref(),
+            DefaultDecl::TsInterfaceDecl(decl) => Some(&decl.id),
+          };
+          let symbol_id = if let Some(ident) = maybe_ident {
+            let id = ident.to_id();
+            let symbol_id =
+              file_module.ensure_symbol_for_swc_id(id.clone(), ident.range());
+            file_module
+              .symbol_mut(default_export_symbol_id)
+              .unwrap()
+              .deps
+              .insert(id);
+            symbol_id
+          } else {
+            default_export_symbol_id
+          };
+
+          let symbol = file_module.symbol_mut(symbol_id).unwrap();
+          match &default_decl.decl {
+            DefaultDecl::Class(n) => {
+              self.fill_class(symbol, &n.class);
+            }
+            DefaultDecl::Fn(n) => self.fill_function_decl(symbol, &n.function),
+            DefaultDecl::TsInterfaceDecl(n) => {
+              self.fill_ts_interface(symbol, n)
+            }
+          }
+        }
         ModuleDecl::ExportDefaultExpr(expr) => {
           let default_export_symbol_id =
             file_module.ensure_default_export_symbol(expr.range());

@@ -1,55 +1,82 @@
 import { instantiate } from "./lib/rs_lib.generated.js";
-import * as path from "https://deno.land/std@0.188.0/path/mod.ts";
+import * as path from "https://deno.land/std@0.190.0/path/mod.ts";
 
 export interface PackOptions {
   entryPoint: string;
-  outputPath: string;
-  testPath?: string;
+  outputFolder: string;
+  testFile?: string;
   /** Whether to type check the outputted declaration file.
    * Defaults to `true`.
    */
   typeCheck: boolean;
+  importMap?: string;
 }
 
 export async function pack(options: PackOptions) {
   const rs = await instantiate();
-  const output = await rs.pack({
-    entryPoints: [path.toFileUrl(path.resolve(options.entryPoint)).toString()],
-  });
-  const jsOutputPath = path.resolve(options.outputPath);
-  const jsExtName = path.extname(jsOutputPath);
-  const dtsOutputPath = jsOutputPath.slice(0, -jsExtName.length) + ".d.ts";
+  const importMapUrl = options.importMap == null
+    ? undefined
+    : path.toFileUrl(path.resolve(options.importMap));
+  const output: { js: string; dts: string; importMap: string | undefined } =
+    await rs.pack({
+      entryPoints: [
+        path.toFileUrl(path.resolve(options.entryPoint)).toString(),
+      ],
+      importMap: importMapUrl?.toString(),
+    });
+  const jsOutputFolder = path.resolve(options.outputFolder);
+  const jsOutputPath = path.join(options.outputFolder, "mod.js");
+  const tsOutputPath = path.join(options.outputFolder, "mod.ts");
+  const dtsOutputPath = path.join(jsOutputFolder, "mod.d.ts");
   await Deno.writeTextFileSync(
     jsOutputPath,
-    `/// <reference types="./${path.basename(dtsOutputPath)}" />\n` +
-    output.js,
+    `/// <reference types="./mod.d.ts" />\n${output.js}`,
   );
-  await Deno.writeTextFileSync(dtsOutputPath, output.dts.replaceAll("*/ ", "*/\n"));
-  if ((options.typeCheck ?? true) && options.testPath == null) {
-    const output = await new Deno.Command(Deno.execPath(), {
-      args: ["check", "--no-config", dtsOutputPath],
+  await Deno.writeTextFileSync(
+    tsOutputPath,
+    // todo: return back if the module has a default export in the output
+    `// @deno-types="./mod.d.ts"\nexport * from "./mod.js";\nimport defaultExport from "./mod.js";\nexport default defaultExport;`,
+  );
+  // todo: https://github.com/swc-project/swc/issues/7492
+  await Deno.writeTextFileSync(
+    dtsOutputPath,
+    output.dts.replaceAll("*/ ", "*/\n"),
+  );
+  if ((options.typeCheck ?? true) && options.testFile == null) {
+    const checkOutput = await new Deno.Command(Deno.execPath(), {
+      args: ["check", "--no-config", tsOutputPath],
     }).spawn();
-    if (!await output.status) {
+    if (!await checkOutput.status) {
       Deno.exit(1);
     }
   }
-  if (options.testPath != null) {
-    const importMapObj = {
-      imports: {
-        [path.toFileUrl(path.resolve(options.entryPoint)).toString()]: path.toFileUrl(jsOutputPath).toString(),
+  if (options.testFile != null) {
+    const importMapObj = output.importMap == null
+      ? {}
+      : JSON.parse(output.importMap);
+    importMapObj.imports ??= {};
+    importMapObj
+      .imports[path.toFileUrl(path.resolve(options.entryPoint)).toString()] =
+        path.toFileUrl(tsOutputPath).toString();
+    // todo: needs to handle scopes
+    if (importMapUrl != null) {
+      for (const [key, value] of Object.entries(importMapObj.imports)) {
+        if ((value as string).startsWith("./")) {
+          importMapObj.imports[key] = new URL(value as string, importMapUrl).toString();
+        }
       }
-    };
+    }
     const uri = `data:,${JSON.stringify(importMapObj)}`;
     // todo: configurable permissions
     const args = ["test", "-A", "--import-map", uri];
     if (options.typeCheck === false) {
       args.push("--no-check");
     }
-    args.push(options.testPath);
-    const output = await new Deno.Command(Deno.execPath(), {
+    args.push(options.testFile);
+    const testOutput = await new Deno.Command(Deno.execPath(), {
       args,
     }).spawn();
-    if (!await output.status) {
+    if (!await testOutput.status) {
       Deno.exit(1);
     }
   }
