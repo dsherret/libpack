@@ -1,8 +1,11 @@
 use anyhow::Context;
+use deno_ast::swc::ast::ModuleItem;
 use deno_ast::ModuleSpecifier;
 use deno_graph::source::Loader;
 use deno_graph::CapturingModuleAnalyzer;
 use deno_graph::DefaultModuleParser;
+use deno_graph::DefaultParsedSourceStore;
+use deno_graph::ParsedSourceStore;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -12,6 +15,8 @@ mod pack_js;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+
+use crate::helpers::module_has_default_export;
 
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(module = "/helpers.js")]
@@ -127,6 +132,7 @@ pub struct PackOutput {
   pub js: String,
   pub dts: String,
   pub import_map: Option<String>,
+  pub has_default_export: bool,
 }
 
 pub async fn rs_pack(
@@ -179,7 +185,18 @@ pub async fn rs_pack(
     js,
     dts,
     import_map: maybe_import_map.map(|r| r.0.to_json()),
+    has_default_export: root_has_default_export(&graph, &capturing_analyzer),
   })
+}
+
+fn root_has_default_export(
+  graph: &deno_graph::ModuleGraph,
+  analyzer: &CapturingModuleAnalyzer,
+) -> bool {
+  assert_eq!(graph.roots.len(), 1);
+  let root = &graph.roots[0];
+  let parsed_source = analyzer.get_parsed_source(root).unwrap();
+  module_has_default_export(parsed_source.module())
 }
 
 fn parse_module_specifiers(

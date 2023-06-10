@@ -45,7 +45,7 @@ export async function pack(options: PackOptions) {
     ? undefined
     : path.toFileUrl(path.resolve(options.importMap));
   let diagnosticCount = 0;
-  const output: { js: string; dts: string; importMap: string | undefined } =
+  const output: { js: string; dts: string; importMap: string | undefined, hasDefaultExport: boolean } =
     await rs.pack({
       entryPoints: [
         path.toFileUrl(path.resolve(options.entryPoint)).toString(),
@@ -69,8 +69,13 @@ export async function pack(options: PackOptions) {
   );
   await Deno.writeTextFileSync(
     tsOutputPath,
-    // todo: return back if the module has a default export in the output
-    `// @deno-types="./mod.d.ts"\nexport * from "./mod.js";\nimport defaultExport from "./mod.js";\nexport default defaultExport;`,
+    (() => {
+      let text = `// @deno-types="./mod.d.ts"\nexport * from "./mod.js";\n`;
+      if (output.hasDefaultExport) {
+        text += `import defaultExport from "./mod.js";\nexport default defaultExport;`
+      }
+      return text;
+    })()
   );
   // todo: https://github.com/swc-project/swc/issues/7492
   await Deno.writeTextFileSync(

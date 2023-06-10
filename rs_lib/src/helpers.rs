@@ -117,6 +117,24 @@ pub fn object_define_property(name: String, key: String, expr: Expr) -> Stmt {
   })
 }
 
+pub fn module_has_default_export(module: &Module) -> bool {
+  module.body.iter().any(|item| match item {
+    ModuleItem::ModuleDecl(decl) => match decl {
+      ModuleDecl::ExportDefaultDecl(_) | ModuleDecl::ExportDefaultExpr(_) => {
+        true
+      }
+      ModuleDecl::Import(_)
+      | ModuleDecl::ExportDecl(_)
+      | ModuleDecl::ExportNamed(_)
+      | ModuleDecl::ExportAll(_)
+      | ModuleDecl::TsImportEquals(_)
+      | ModuleDecl::TsExportAssignment(_)
+      | ModuleDecl::TsNamespaceExport(_) => false,
+    },
+    ModuleItem::Stmt(_) => false,
+  })
+}
+
 pub fn is_remote_specifier(specifier: &ModuleSpecifier) -> bool {
   matches!(specifier.scheme(), "https" | "http")
 }
