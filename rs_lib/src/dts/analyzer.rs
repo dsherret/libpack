@@ -13,7 +13,6 @@ use deno_ast::SourceRangedForSpanned;
 use indexmap::IndexMap;
 
 use crate::Diagnostic;
-use crate::LineAndColumnDisplay;
 use crate::Reporter;
 
 #[derive(Default, Copy, Clone, Eq, PartialEq, Hash)]
@@ -1040,7 +1039,7 @@ impl<'a, TReporter: Reporter> SymbolFiller<'a, TReporter> {
     n.visit_with(&mut visitor);
   }
 
-  fn fill_private_method(&self, symbol: &mut Symbol, method: &PrivateMethod) {
+  fn fill_private_method(&self, _symbol: &mut Symbol, _method: &PrivateMethod) {
     // do nothing, private
   }
 
@@ -1050,7 +1049,7 @@ impl<'a, TReporter: Reporter> SymbolFiller<'a, TReporter> {
     }
   }
 
-  fn fill_private_prop(&self, symbol: &mut Symbol, prop: &PrivateProp) {
+  fn fill_private_prop(&self, _symbol: &mut Symbol, _prop: &PrivateProp) {
     // do nothing, private properties are not emitted with their type
   }
 
@@ -1059,11 +1058,15 @@ impl<'a, TReporter: Reporter> SymbolFiller<'a, TReporter> {
     symbol: &mut Symbol,
     signature: &TsIndexSignature,
   ) {
-    todo!("index signature")
+    if let Some(type_ann) = &signature.type_ann {
+      self.fill_ts_type_ann(symbol, type_ann)
+    }
   }
 
   fn fill_auto_accessor(&self, symbol: &mut Symbol, prop: &AutoAccessor) {
-    todo!("auto accessor")
+    if let Some(type_ann) = &prop.type_ann {
+      self.fill_ts_type_ann(symbol, type_ann)
+    }
   }
 
   fn has_internal_jsdoc(&self, pos: SourcePos) -> bool {
@@ -1081,12 +1084,12 @@ impl<'a> Visit for SymbolFillVisitor<'a> {
     self.symbol.deps.insert(id);
   }
 
-  fn visit_ts_import_type(&mut self, n: &TsImportType) {
+  fn visit_ts_import_type(&mut self, _n: &TsImportType) {
     // probably need to have another map for these
     todo!("import type");
   }
 
-  fn visit_ts_qualified_name(&mut self, n: &TsQualifiedName) {
+  fn visit_ts_qualified_name(&mut self, _n: &TsQualifiedName) {
     // todo!("qualified name");
   }
 }

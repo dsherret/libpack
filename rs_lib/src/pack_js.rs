@@ -15,10 +15,7 @@ use deno_ast::swc::common::DUMMY_SP;
 use deno_ast::swc::visit::*;
 use deno_ast::Diagnostic;
 use deno_ast::EmitOptions;
-use deno_ast::MediaType;
 use deno_ast::ModuleSpecifier;
-use deno_ast::ParseParams;
-use deno_ast::SourceTextInfo;
 use deno_graph::CapturingModuleParser;
 use deno_graph::EsmModule;
 use deno_graph::ModuleGraph;
@@ -215,7 +212,7 @@ pub fn pack(
       }
       deno_graph::Module::Json(_) => {}
       _ => {
-        todo!();
+        todo!("json modules");
       }
     }
   }
@@ -590,19 +587,19 @@ impl HasAwaitKeywordVisitor {
 }
 
 impl Visit for HasAwaitKeywordVisitor {
-  fn visit_function(&mut self, n: &Function) {
+  fn visit_function(&mut self, _n: &Function) {
     // stop
   }
 
-  fn visit_arrow_expr(&mut self, n: &ArrowExpr) {
+  fn visit_arrow_expr(&mut self, _n: &ArrowExpr) {
     // stop
   }
 
-  fn visit_class_method(&mut self, n: &ClassMethod) {
+  fn visit_class_method(&mut self, _n: &ClassMethod) {
     // stop
   }
 
-  fn visit_await_expr(&mut self, n: &AwaitExpr) {
+  fn visit_await_expr(&mut self, _n: &AwaitExpr) {
     self.found = true;
   }
 }
@@ -796,12 +793,12 @@ fn analyze_esm_module(
               let module_data = context.module_data.get_mut(module_specifier);
               for decl in &decl.decls {
                 match &decl.name {
-                  Pat::Array(_) => todo!(),
-                  Pat::Assign(_) => todo!(),
+                  Pat::Array(_) => todo!("array destructuring"),
+                  Pat::Assign(_) => todo!("var assignment"),
                   Pat::Ident(ident) => {
                     module_data.add_export_name(ident.id.sym.to_string());
                   }
-                  Pat::Rest(_) => todo!(),
+                  Pat::Rest(_) => todo!("spread in var decl"),
                   Pat::Object(obj) => {
                     for prop in &obj.props {
                       match prop {
@@ -1192,26 +1189,4 @@ fn get_root_dir<'a>(
   } else {
     root
   }
-}
-
-fn emit_script(file_text: &str) -> String {
-  // todo: skip emitting jsx
-
-  // use swc for now because emitting enums is actually quite complicated
-  deno_ast::parse_module(ParseParams {
-    specifier: "file:///mod.ts".to_string(),
-    text_info: SourceTextInfo::new(file_text.into()),
-    media_type: MediaType::TypeScript,
-    capture_tokens: false,
-    scope_analysis: false,
-    maybe_syntax: None,
-  })
-  .unwrap()
-  .transpile(&EmitOptions {
-    source_map: false,
-    inline_source_map: false,
-    ..Default::default()
-  })
-  .unwrap()
-  .text
 }

@@ -13,8 +13,8 @@ if (args._.length !== 2) {
   );
   Deno.exit(1);
 }
-const entryPoint = path.resolve(args._[0] as string);
-const outputFolder = path.resolve(args._[1] as string);
+const outputFolder = path.resolve(args._[0] as string);
+const entryPoint = path.resolve(args._[1] as string);
 const entryPointExt = path.extname(entryPoint);
 const entryPointBaseName = path.basename(entryPoint);
 const entryPointNoExt = entryPointBaseName.slice(0, -1 * entryPointExt.length);

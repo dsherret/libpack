@@ -1,10 +1,8 @@
 use anyhow::Context;
-use deno_ast::swc::ast::ModuleItem;
 use deno_ast::ModuleSpecifier;
 use deno_graph::source::Loader;
 use deno_graph::CapturingModuleAnalyzer;
 use deno_graph::DefaultModuleParser;
-use deno_graph::DefaultParsedSourceStore;
 use deno_graph::ParsedSourceStore;
 use serde::Deserialize;
 use serde::Serialize;

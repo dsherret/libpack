@@ -45,3 +45,127 @@ will error when something in your public API is not explicitly typed.
 
 The current implementation of this needs a lot more work, but it will currently
 error when it finds something not supported.
+
+## Usage
+
+### Building
+
+Add a `.gitignore` to your project and ignore the `dist` directory, which we'll
+be using for the build output:
+
+```
+dist
+```
+
+Set up your library with a _mod.ts_ file. For example:
+
+```ts
+// mod.ts
+export function add(a: number, b: number): number {
+  return a + b;
+}
+```
+
+Add a corresponding integration test file at _mod.test.ts_:
+
+```ts
+// mod.test.ts
+import { assertEquals } from "$std/testing/asserts.ts";
+import { add } from "./mod.ts";
+
+Deno.test("adds numbers", () => {
+  assertEquals(add(1, 2), 3);
+});
+```
+
+Add a `build` deno task to your _deno.json_ file:
+
+```js
+{
+  "tasks": {
+    "build": "rm -rf dist && deno run -A https://deno.land/x/lib_pack@{VERSIONGOESHERE}/main.ts dist mod.ts"
+  },
+  "imports": {
+    "$std/": "https://deno.land/std@0.191.0/" // or use a newer version
+  }
+}
+```
+
+Then run:
+
+```sh
+deno task build
+```
+
+This will:
+
+1. Delete the `dist` directory if it exists.
+2. Build your library to the `dist` directory using `mod.ts` as an entrypoint,
+   type check the output, then run integration tests on the output using
+   _mod.test.ts_.
+
+### Publishing
+
+Publishing works by:
+
+1. We tag our repo with a version number. For example: `1.0.0`.
+1. A GH Actions Workflow is triggered for that tag.
+   1. It builds the output to a `dist` directory.
+   1. It pushes the `dist` directory to a separate orphaned `build` branch.
+   1. It tags the `build` branch with a `release/` prefix tag.
+
+### Setup
+
+1. **Update your repository webhook's payload URL** for https://api.deno.land to
+   have a `version_prefix` query parameter of `release/` in Settings > Webhooks:
+
+   ```
+   https://api.deno.land/webhook/gh/{your_module_name}?version_prefix=release/
+   ```
+
+   This will cause deno.land/x to only publish when the workflow tags the
+   `build` branch with a `release/` prefix.
+
+2. Create a `.github/workflows/ci.yml` file in your repository with content
+   similar to the following:
+
+   ```yml
+   # .github/workflows/ci.yml
+   name: ci
+
+   on:
+     push:
+       branches: ["main"]
+     pull_request:
+       branches: ["main"]
+     tag:
+       # It's important to limit this to only run the workflow
+       # when tagging the main branch and not when tagging with
+       # a `release/` prefix, as the `release/` prefix tag contains
+       # the built artifacts
+       branches: ["main"]
+
+   jobs:
+     deno:
+       runs-on: ubuntu-latest
+
+       steps:
+         - uses: actions/checkout@v3
+         - uses: denoland/setup-deno@v1
+
+         - name: Lint
+           run: deno lint
+
+         - name: Test
+           run: deno test -A
+
+         - name: Build
+           run: deno task build
+
+         - name: Push to build branch and publish if tag
+           uses: denoland/publish-folder@3fb8b551312e1886d05d856bb50e61c13dd4b6a4
+           with:
+             folder: dist
+             branch: build
+             tag-prefix: release/
+   ```

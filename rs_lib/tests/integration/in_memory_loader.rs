@@ -3,7 +3,6 @@
 // todo: consolidate with dnt
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;

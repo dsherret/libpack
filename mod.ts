@@ -45,24 +45,29 @@ export async function pack(options: PackOptions) {
     ? undefined
     : path.toFileUrl(path.resolve(options.importMap));
   let diagnosticCount = 0;
-  const output: { js: string; dts: string; importMap: string | undefined, hasDefaultExport: boolean } =
-    await rs.pack({
-      entryPoints: [
-        path.toFileUrl(path.resolve(options.entryPoint)).toString(),
-      ],
-      importMap: importMapUrl?.toString(),
-    }, (diagnostic: Diagnostic) => {
-      if (options.onDiagnostic) {
-        options.onDiagnostic(diagnostic);
-      } else {
-        diagnosticCount++;
-        outputDiagnostic(diagnostic);
-      }
-    });
+  const output: {
+    js: string;
+    dts: string;
+    importMap: string | undefined;
+    hasDefaultExport: boolean;
+  } = await rs.pack({
+    entryPoints: [
+      path.toFileUrl(path.resolve(options.entryPoint)).toString(),
+    ],
+    importMap: importMapUrl?.toString(),
+  }, (diagnostic: Diagnostic) => {
+    if (options.onDiagnostic) {
+      options.onDiagnostic(diagnostic);
+    } else {
+      diagnosticCount++;
+      outputDiagnostic(diagnostic);
+    }
+  });
   const jsOutputFolder = path.resolve(options.outputFolder);
   const jsOutputPath = path.join(options.outputFolder, "mod.js");
   const tsOutputPath = path.join(options.outputFolder, "mod.ts");
   const dtsOutputPath = path.join(jsOutputFolder, "mod.d.ts");
+  await Deno.mkdir(jsOutputFolder, { recursive: true });
   await Deno.writeTextFileSync(
     jsOutputPath,
     `/// <reference types="./mod.d.ts" />\n${output.js}`,
@@ -72,10 +77,11 @@ export async function pack(options: PackOptions) {
     (() => {
       let text = `// @deno-types="./mod.d.ts"\nexport * from "./mod.js";\n`;
       if (output.hasDefaultExport) {
-        text += `import defaultExport from "./mod.js";\nexport default defaultExport;`
+        text +=
+          `import defaultExport from "./mod.js";\nexport default defaultExport;`;
       }
       return text;
-    })()
+    })(),
   );
   // todo: https://github.com/swc-project/swc/issues/7492
   await Deno.writeTextFileSync(
@@ -83,7 +89,11 @@ export async function pack(options: PackOptions) {
     output.dts.replaceAll("*/ ", "*/\n"),
   );
   if (diagnosticCount > 0) {
-    throw new Error(`Failed. Had ${diagnosticCount} diagnostic${diagnosticCount != 1 ? "s" : ""}.`);
+    throw new Error(
+      `Failed. Had ${diagnosticCount} diagnostic${
+        diagnosticCount != 1 ? "s" : ""
+      }.`,
+    );
   }
   if ((options.typeCheck ?? true) && options.testFile == null) {
     const checkOutput = await new Deno.Command(Deno.execPath(), {

@@ -26,7 +26,6 @@ use crate::helpers::is_remote_specifier;
 use crate::helpers::print_program;
 use crate::helpers::ts_keyword_type;
 use crate::Diagnostic;
-use crate::LineAndColumnDisplay;
 use crate::Reporter;
 
 use self::analyzer::has_internal_jsdoc;
