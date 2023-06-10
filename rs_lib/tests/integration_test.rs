@@ -25,7 +25,7 @@ async fn test_specs() {
     // spec.output_file.text = result.clone();
     // std::fs::write(&test_file_path, spec.emit()).unwrap();
     assert_eq!(
-      result,
+      result.output.js,
       spec.output_file.text,
       "Should be same for {}",
       test_file_path.display()
@@ -46,13 +46,13 @@ async fn test_dts_specs() {
       }
     });
 
-    let result = builder.pack_dts().await.unwrap();
+    let result = builder.pack().await.unwrap();
     // uncomment to overwrite
     // let mut spec = spec;
     // spec.output_file.text = result.clone();
     // std::fs::write(&test_file_path, spec.emit()).unwrap();
     assert_eq!(
-      result,
+      result.output.dts,
       spec.output_file.text,
       "Should be same for {}",
       test_file_path.display()

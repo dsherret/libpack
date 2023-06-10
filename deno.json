@@ -1,7 +1,7 @@
 {
   "lock": false,
   "tasks": {
-    "build": "deno task wasmbuild --skip-opt",
+    "build": "mkdir -p dist && cp src/lib/rs_lib_bg.wasm dist/rs_lib_bg.wasm && deno run -A main.ts mod.ts dist",
     "wasmbuild": "deno run -A https://deno.land/x/wasmbuild@0.14.1/main.ts"
   },
   "exclude": [

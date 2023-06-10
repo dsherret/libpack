@@ -1,9 +1,35 @@
+use std::cell::RefCell;
+
 use anyhow::Result;
-use deno_ast::ModuleSpecifier;
 use rs_lib::rs_pack;
+use rs_lib::Diagnostic;
 use rs_lib::PackOptions;
+use rs_lib::PackOutput;
+use rs_lib::Reporter;
 
 use super::InMemoryLoader;
+
+#[derive(Default)]
+struct TestReporter {
+  diagnostics: RefCell<Vec<Diagnostic>>,
+}
+
+impl TestReporter {
+  pub fn diagnostics(self) -> Vec<Diagnostic> {
+    self.diagnostics.take()
+  }
+}
+
+impl Reporter for TestReporter {
+  fn diagnostic(&self, diagnostic: Diagnostic) {
+    self.diagnostics.borrow_mut().push(diagnostic);
+  }
+}
+
+pub struct PackResult {
+  pub output: PackOutput,
+  pub diagnostics: Vec<Diagnostic>,
+}
 
 pub struct TestBuilder {
   loader: InMemoryLoader,
@@ -32,27 +58,20 @@ impl TestBuilder {
     self
   }
 
-  pub async fn pack(&self) -> Result<String> {
-    rs_pack(
+  pub async fn pack(&self) -> Result<PackResult> {
+    let reporter = TestReporter::default();
+    let output = rs_pack(
       &PackOptions {
         entry_points: vec![self.entry_point.clone()],
         import_map: None,
       },
       &mut self.loader.clone(),
+      &reporter,
     )
-    .await
-    .map(|output| output.js)
-  }
-
-  pub async fn pack_dts(&self) -> Result<String> {
-    rs_pack(
-      &PackOptions {
-        entry_points: vec![self.entry_point.clone()],
-        import_map: None,
-      },
-      &mut self.loader.clone(),
-    )
-    .await
-    .map(|output| output.dts)
+    .await?;
+    Ok(PackResult {
+      output,
+      diagnostics: reporter.diagnostics(),
+    })
   }
 }

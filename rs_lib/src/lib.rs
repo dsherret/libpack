@@ -63,16 +63,55 @@ impl Loader for JsLoader {
 }
 
 #[cfg(target_arch = "wasm32")]
+struct JsReporter<'a>(&'a js_sys::Function);
+
+#[cfg(target_arch = "wasm32")]
+impl<'a> Reporter for JsReporter<'a> {
+  fn diagnostic(&self, diagnostic: Diagnostic) {
+    self
+      .0
+      .call1(
+        &JsValue::null(),
+        &serde_wasm_bindgen::to_value(&diagnostic).unwrap(),
+      )
+      .unwrap();
+  }
+}
+
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
-pub async fn pack(options: JsValue) -> Result<JsValue, JsValue> {
+pub async fn pack(
+  options: JsValue,
+  on_diagnostic: &js_sys::Function,
+) -> Result<JsValue, JsValue> {
   console_error_panic_hook::set_once();
 
   let options: PackOptions = serde_wasm_bindgen::from_value(options).unwrap();
   let mut loader = JsLoader::default();
-  match rs_pack(&options, &mut loader).await {
+  let reporter = JsReporter(on_diagnostic);
+  match rs_pack(&options, &mut loader, &reporter).await {
     Ok(output) => Ok(serde_wasm_bindgen::to_value(&output).unwrap()),
     Err(err) => Err(format!("{:#}", err))?,
   }
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LineAndColumnDisplay {
+  pub line_number: usize,
+  pub column_number: usize,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Diagnostic {
+  pub message: String,
+  pub specifier: String,
+  pub line_and_column: Option<LineAndColumnDisplay>,
+}
+
+pub trait Reporter {
+  fn diagnostic(&self, diagnostic: Diagnostic);
 }
 
 #[derive(Deserialize)]
@@ -93,6 +132,7 @@ pub struct PackOutput {
 pub async fn rs_pack(
   options: &PackOptions,
   loader: &mut dyn Loader,
+  reporter: &impl Reporter,
 ) -> Result<PackOutput, anyhow::Error> {
   let mut graph = deno_graph::ModuleGraph::new(deno_graph::GraphKind::All);
   let entry_points = parse_module_specifiers(&options.entry_points)?;
@@ -133,7 +173,7 @@ pub async fn rs_pack(
       include_remote: false,
     },
   )?;
-  let dts = dts::pack_dts(&graph, &parser)?;
+  let dts = dts::pack_dts(&graph, &parser, reporter)?;
 
   Ok(PackOutput {
     js,

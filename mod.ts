@@ -1,5 +1,5 @@
 import { instantiate } from "./lib/rs_lib.generated.js";
-import * as path from "https://deno.land/std@0.190.0/path/mod.ts";
+import * as path from "https://deno.land/std@0.191.0/path/mod.ts";
 
 export interface PackOptions {
   entryPoint: string;
@@ -10,6 +10,33 @@ export interface PackOptions {
    */
   typeCheck: boolean;
   importMap?: string;
+  onDiagnostic?: (diagnostic: Diagnostic) => void;
+}
+
+export interface LineAndColumnDisplay {
+  lineNumber: string;
+  columnNumber: string;
+}
+
+export interface Diagnostic {
+  specifier: string;
+  message: string;
+  lineAndColumn: LineAndColumnDisplay | undefined;
+}
+
+export function outputDiagnostic(diagnostic: Diagnostic) {
+  console.warn(
+    `ERROR: ${diagnostic.message} -- ${diagnostic.specifier}${
+      formatLineAndColumn(diagnostic.lineAndColumn)
+    }`,
+  );
+}
+
+function formatLineAndColumn(lineAndColumn: LineAndColumnDisplay | undefined) {
+  if (lineAndColumn == null) {
+    return "";
+  }
+  return `:${lineAndColumn.lineNumber}:${lineAndColumn.columnNumber}`;
 }
 
 export async function pack(options: PackOptions) {
@@ -17,12 +44,20 @@ export async function pack(options: PackOptions) {
   const importMapUrl = options.importMap == null
     ? undefined
     : path.toFileUrl(path.resolve(options.importMap));
+  let diagnosticCount = 0;
   const output: { js: string; dts: string; importMap: string | undefined } =
     await rs.pack({
       entryPoints: [
         path.toFileUrl(path.resolve(options.entryPoint)).toString(),
       ],
       importMap: importMapUrl?.toString(),
+    }, (diagnostic: Diagnostic) => {
+      if (options.onDiagnostic) {
+        options.onDiagnostic(diagnostic);
+      } else {
+        diagnosticCount++;
+        outputDiagnostic(diagnostic);
+      }
     });
   const jsOutputFolder = path.resolve(options.outputFolder);
   const jsOutputPath = path.join(options.outputFolder, "mod.js");
@@ -42,6 +77,9 @@ export async function pack(options: PackOptions) {
     dtsOutputPath,
     output.dts.replaceAll("*/ ", "*/\n"),
   );
+  if (diagnosticCount > 0) {
+    throw new Error(`Failed. Had ${diagnosticCount} diagnostic${diagnosticCount != 1 ? "s" : ""}.`);
+  }
   if ((options.typeCheck ?? true) && options.testFile == null) {
     const checkOutput = await new Deno.Command(Deno.execPath(), {
       args: ["check", "--no-config", tsOutputPath],
@@ -62,7 +100,8 @@ export async function pack(options: PackOptions) {
     if (importMapUrl != null) {
       for (const [key, value] of Object.entries(importMapObj.imports)) {
         if ((value as string).startsWith("./")) {
-          importMapObj.imports[key] = new URL(value as string, importMapUrl).toString();
+          importMapObj.imports[key] = new URL(value as string, importMapUrl)
+            .toString();
         }
       }
     }

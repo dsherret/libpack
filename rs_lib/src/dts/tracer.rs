@@ -9,7 +9,6 @@ use deno_graph::ModuleParser;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
 
-use crate::console_log;
 use crate::helpers::is_remote_specifier;
 
 use super::analyzer::FileDepName;
@@ -81,7 +80,6 @@ impl<'a> Context<'a> {
 
   pub fn ensure_analyze(&mut self, specifier: &ModuleSpecifier) -> Result<()> {
     if self.analyzer.get(specifier).is_none() {
-      console_log!("Analyzing: {}", specifier);
       let parsed_source = self.parsed_source(specifier)?;
       self.analyzer.analyze(&parsed_source);
     }
@@ -241,10 +239,7 @@ pub fn trace<'a>(
     )]),
   };
   while let Some((specifier, exports_to_trace)) = context.pending_traces.pop() {
-    // eprintln!("ANALYZING: {} {:?}", specifier, exports_to_trace);
     trace_module(&specifier, &mut context, &exports_to_trace)?;
-    // let module_symbol = context.analyzer.get_mut(&specifier).unwrap();
-    // eprintln!("SYMBOL: {:#?}", module_symbol);
   }
 
   Ok(context.analyzer)

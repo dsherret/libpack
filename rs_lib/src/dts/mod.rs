@@ -18,7 +18,6 @@ use deno_graph::CapturingModuleParser;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleParser;
 
-use crate::console_log;
 use crate::dts::analyzer::ModuleAnalyzer;
 use crate::helpers::adjust_spans;
 use crate::helpers::fill_leading_comments;
@@ -26,6 +25,9 @@ use crate::helpers::ident;
 use crate::helpers::is_remote_specifier;
 use crate::helpers::print_program;
 use crate::helpers::ts_keyword_type;
+use crate::Diagnostic;
+use crate::LineAndColumnDisplay;
+use crate::Reporter;
 
 use self::analyzer::has_internal_jsdoc;
 use self::analyzer::is_class_member_overload;
@@ -34,18 +36,14 @@ use self::analyzer::ModuleSymbol;
 mod analyzer;
 mod tracer;
 
-// 1. Do a first analysis pass. Collect all "id"s that should be maintained.
-// 2. Visit all modules found in the analysis pass and transform using swc
-//    to a dts file
-
 pub fn pack_dts(
   graph: &ModuleGraph,
   parser: &CapturingModuleParser,
+  reporter: &impl Reporter,
 ) -> Result<String, anyhow::Error> {
   // run the tracer
   let module_analyzer = tracer::trace(graph, parser)?;
 
-  //let mut dts_transformed_files = HashMap::new();
   let source_map = Rc::new(SourceMap::default());
   let global_comments = SingleThreadedComments::default();
   let mut final_module = Module {
@@ -57,7 +55,6 @@ pub fn pack_dts(
   let mut default_remote_module_items = Vec::new();
 
   for graph_module in graph.modules() {
-    console_log!("Module: {}", graph_module.specifier());
     if is_remote_specifier(graph_module.specifier()) {
       if let Some(module_symbol) = module_analyzer.get(graph_module.specifier())
       {
@@ -171,6 +168,7 @@ pub fn pack_dts(
           };
           // strip all the non-declaration types
           let mut dts_transformer = DtsTransformer {
+            reporter,
             module_name,
             module_specifier: &graph_module.specifier,
             module_symbol,
@@ -238,7 +236,8 @@ impl ReExportName {
   }
 }
 
-struct DtsTransformer<'a> {
+struct DtsTransformer<'a, TReporter: Reporter> {
+  reporter: &'a TReporter,
   module_name: Option<String>,
   module_specifier: &'a ModuleSpecifier,
   module_symbol: &'a ModuleSymbol,
@@ -250,7 +249,7 @@ struct DtsTransformer<'a> {
   re_export_index: u32,
 }
 
-impl<'a> DtsTransformer<'a> {
+impl<'a, TReporter: Reporter> DtsTransformer<'a, TReporter> {
   pub fn next_re_export_name(&mut self) -> ReExportName {
     // exports should not be available in the scope of their module
     // so to work around this, give the export an obscure import name
@@ -264,7 +263,7 @@ impl<'a> DtsTransformer<'a> {
   }
 }
 
-impl<'a> VisitMut for DtsTransformer<'a> {
+impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
   fn visit_mut_auto_accessor(&mut self, n: &mut AutoAccessor) {
     visit_mut_auto_accessor(self, n)
   }
@@ -571,17 +570,18 @@ impl<'a> VisitMut for DtsTransformer<'a> {
         .map(|last_stmt| matches!(last_stmt, Stmt::Return(..)))
         .unwrap_or(false);
 
-      // todo: add filename with line and column number
       let line_and_column = self
         .parsed_source
         .text_info()
         .line_and_column_display(n.start());
-      console_log!(
-        "Warning: no return type at: {}:{}:{}",
-        self.module_specifier,
-        line_and_column.line_number,
-        line_and_column.column_number
-      );
+      self.reporter.diagnostic(Diagnostic {
+        message: "Missing return type.".to_string(),
+        specifier: self.module_specifier.to_string(),
+        line_and_column: Some(LineAndColumnDisplay {
+          line_number: line_and_column.line_number,
+          column_number: line_and_column.column_number,
+        }),
+      });
 
       let return_type = Box::new(if is_last_return {
         ts_keyword_type(TsKeywordTypeKind::TsUnknownKeyword)
