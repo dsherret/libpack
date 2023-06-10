@@ -10,6 +10,7 @@ use indexmap::IndexMap;
 use indexmap::IndexSet;
 
 use crate::helpers::is_remote_specifier;
+use crate::Reporter;
 
 use super::analyzer::FileDepName;
 use super::analyzer::ModuleAnalyzer;
@@ -49,14 +50,14 @@ impl ExportsToTrace {
   }
 }
 
-struct Context<'a> {
+struct Context<'a, TReporter: Reporter> {
   graph: &'a ModuleGraph,
   parser: &'a CapturingModuleParser<'a>,
-  analyzer: ModuleAnalyzer,
+  analyzer: ModuleAnalyzer<'a, TReporter>,
   pending_traces: IndexMap<ModuleSpecifier, ExportsToTrace>,
 }
 
-impl<'a> Context<'a> {
+impl<'a, TReporter: Reporter> Context<'a, TReporter> {
   pub fn parsed_source(
     &self,
     specifier: &ModuleSpecifier,
@@ -224,15 +225,16 @@ impl<'a> Context<'a> {
   }
 }
 
-pub fn trace<'a>(
+pub fn trace<'a, TReporter: Reporter>(
   graph: &'a ModuleGraph,
   parser: &'a CapturingModuleParser<'a>,
-) -> Result<ModuleAnalyzer> {
+  reporter: &'a TReporter,
+) -> Result<ModuleAnalyzer<'a, TReporter>> {
   assert_eq!(graph.roots.len(), 1);
   let mut context = Context {
     graph,
     parser,
-    analyzer: ModuleAnalyzer::default(),
+    analyzer: ModuleAnalyzer::new(reporter),
     pending_traces: IndexMap::from([(
       graph.roots[0].clone(),
       ExportsToTrace::AllWithDefault,
@@ -245,9 +247,9 @@ pub fn trace<'a>(
   Ok(context.analyzer)
 }
 
-fn trace_module<'a>(
+fn trace_module<'a, TReporter: Reporter>(
   specifier: &ModuleSpecifier,
-  context: &mut Context<'a>,
+  context: &mut Context<'a, TReporter>,
   exports_to_trace: &ExportsToTrace,
 ) -> Result<()> {
   let mut pending = context.trace_exports(specifier, exports_to_trace)?;

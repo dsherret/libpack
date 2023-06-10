@@ -12,6 +12,10 @@ use deno_ast::SourceRange;
 use deno_ast::SourceRangedForSpanned;
 use indexmap::IndexMap;
 
+use crate::Diagnostic;
+use crate::LineAndColumnDisplay;
+use crate::Reporter;
+
 #[derive(Default, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct SymbolId(u32);
 
@@ -241,12 +245,19 @@ impl ModuleSymbol {
   }
 }
 
-#[derive(Default)]
-pub struct ModuleAnalyzer {
+pub struct ModuleAnalyzer<'a, TReporter: Reporter> {
+  reporter: &'a TReporter,
   modules: HashMap<String, ModuleSymbol>,
 }
 
-impl ModuleAnalyzer {
+impl<'a, TReporter: Reporter> ModuleAnalyzer<'a, TReporter> {
+  pub fn new(reporter: &'a TReporter) -> Self {
+    Self {
+      reporter,
+      modules: Default::default(),
+    }
+  }
+
   pub fn get(&self, specifier: &ModuleSpecifier) -> Option<&ModuleSymbol> {
     self.modules.get(specifier.as_str())
   }
@@ -278,7 +289,11 @@ impl ModuleAnalyzer {
       lower_specifier.starts_with("https://")
         || lower_specifier.starts_with("http://")
     };
-    let filler = SymbolFiller { source, is_remote };
+    let filler = SymbolFiller {
+      source,
+      is_remote,
+      reporter: self.reporter,
+    };
     filler.fill_module(&mut module_symbol, module);
     self
       .modules
@@ -286,12 +301,13 @@ impl ModuleAnalyzer {
   }
 }
 
-struct SymbolFiller<'a> {
+struct SymbolFiller<'a, TReporter: Reporter> {
+  reporter: &'a TReporter,
   source: &'a ParsedSource,
   is_remote: bool,
 }
 
-impl<'a> SymbolFiller<'a> {
+impl<'a, TReporter: Reporter> SymbolFiller<'a, TReporter> {
   fn fill_module(&self, file_module: &mut ModuleSymbol, module: &Module) {
     let mut last_was_overload = false;
     for module_item in &module.body {
@@ -569,23 +585,33 @@ impl<'a> SymbolFiller<'a> {
             }
           }
         }
-        ModuleDecl::ExportDefaultExpr(expr) => {
-          let default_export_symbol_id =
-            file_module.ensure_default_export_symbol(expr.range());
-          match &*expr.expr {
-            Expr::Ident(ident) => {
-              file_module
-                .ensure_symbol_for_swc_id(ident.to_id(), ident.range());
-              file_module
-                .symbol_mut(default_export_symbol_id)
-                .unwrap()
-                .deps
-                .insert(ident.to_id());
-            }
-            // todo: warn here
-            _ => todo!("export default expr"),
+        ModuleDecl::ExportDefaultExpr(expr) => match &*expr.expr {
+          Expr::Ident(ident) => {
+            let default_export_symbol_id =
+              file_module.ensure_default_export_symbol(expr.range());
+            file_module.ensure_symbol_for_swc_id(ident.to_id(), ident.range());
+            file_module
+              .symbol_mut(default_export_symbol_id)
+              .unwrap()
+              .deps
+              .insert(ident.to_id());
           }
-        }
+          _ => {
+            let line_and_column = self
+              .source
+              .text_info()
+              .line_and_column_display(expr.start());
+            self.reporter.diagnostic(Diagnostic {
+                message: concat!(
+                  "Default expressions that are not identifiers are not supported. ",
+                  "To work around this, extract out the expression to a variable, ",
+                  "type the variable, and then default export the variable declaration."
+                ).to_string(),
+                specifier: self.source.specifier().to_string(),
+                line_and_column: Some(line_and_column.into()),
+              });
+          }
+        },
         ModuleDecl::ExportAll(n) => {
           file_module.re_exports.push(n.src.value.to_string());
         }

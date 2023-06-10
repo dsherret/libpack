@@ -100,14 +100,23 @@ pub async fn pack(
   }
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LineAndColumnDisplay {
   pub line_number: usize,
   pub column_number: usize,
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+impl From<deno_ast::LineAndColumnDisplay> for LineAndColumnDisplay {
+  fn from(value: deno_ast::LineAndColumnDisplay) -> Self {
+    Self {
+      line_number: value.line_number,
+      column_number: value.column_number,
+    }
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
   pub message: String,

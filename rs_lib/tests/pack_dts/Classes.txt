@@ -123,3 +123,15 @@ declare module pack1 {
     prop: string;
   }
 }
+
+# diagnostics
+[
+  {
+    "message": "Missing return type for function with return statement.",
+    "specifier": "file:///mod.ts",
+    "lineAndColumn": {
+      "lineNumber": 31,
+      "columnNumber": 3
+    }
+  }
+]

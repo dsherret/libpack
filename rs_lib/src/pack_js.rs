@@ -1144,7 +1144,6 @@ impl<'a> VisitMut for Transformer<'a> {
   fn visit_mut_expr(&mut self, expr: &mut Expr) {
     match expr {
       Expr::Ident(ident) => {
-        eprintln!("IDENT: {}", ident.sym.to_string());
         let id = ident.to_id();
         if let Some(parts) = self.replace_ids.get(&id) {
           *expr = replace_id_to_expr(parts);

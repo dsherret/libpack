@@ -42,7 +42,7 @@ pub fn pack_dts(
   reporter: &impl Reporter,
 ) -> Result<String, anyhow::Error> {
   // run the tracer
-  let module_analyzer = tracer::trace(graph, parser)?;
+  let module_analyzer = tracer::trace(graph, parser, reporter)?;
 
   let source_map = Rc::new(SourceMap::default());
   let global_comments = SingleThreadedComments::default();
@@ -244,7 +244,7 @@ struct DtsTransformer<'a, TReporter: Reporter> {
   parsed_source: &'a ParsedSource,
   ranges: HashSet<SourceRange>,
   graph: &'a ModuleGraph,
-  module_analyzer: &'a ModuleAnalyzer,
+  module_analyzer: &'a ModuleAnalyzer<'a, TReporter>,
   append_module_items: Vec<ModuleItem>,
   re_export_index: u32,
 }
@@ -574,10 +574,7 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
           message: "Missing return type for function with return statement."
             .to_string(),
           specifier: self.module_specifier.to_string(),
-          line_and_column: Some(LineAndColumnDisplay {
-            line_number: line_and_column.line_number,
-            column_number: line_and_column.column_number,
-          }),
+          line_and_column: Some(line_and_column.into()),
         });
       }
 

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use pretty_assertions::assert_eq;
 
 use integration::TestBuilder;
+use rs_lib::Diagnostic;
 
 mod integration;
 
@@ -20,13 +21,25 @@ async fn test_specs() {
     });
 
     let result = builder.pack().await.unwrap();
-    // uncomment to overwrite
-    // let mut spec = spec;
-    // spec.output_file.text = result.clone();
-    // std::fs::write(&test_file_path, spec.emit()).unwrap();
+    let update_var = std::env::var("UPDATE");
+    let spec = if update_var.as_ref().map(|v| v.as_str()) == Ok("1") {
+      let mut spec = spec;
+      spec.output_file.text = result.output.js.clone();
+      spec.diagnostics = result.diagnostics.clone();
+      std::fs::write(&test_file_path, spec.emit()).unwrap();
+      spec
+    } else {
+      spec
+    };
     assert_eq!(
       result.output.js,
       spec.output_file.text,
+      "Should be same for {}",
+      test_file_path.display()
+    );
+    assert_eq!(
+      result.diagnostics,
+      spec.diagnostics,
       "Should be same for {}",
       test_file_path.display()
     );
@@ -47,13 +60,25 @@ async fn test_dts_specs() {
     });
 
     let result = builder.pack().await.unwrap();
-    // uncomment to overwrite
-    // let mut spec = spec;
-    // spec.output_file.text = result.clone();
-    // std::fs::write(&test_file_path, spec.emit()).unwrap();
+    let update_var = std::env::var("UPDATE");
+    let spec = if update_var.as_ref().map(|v| v.as_str()) == Ok("1") {
+      let mut spec = spec;
+      spec.output_file.text = result.output.dts.clone();
+      spec.diagnostics = result.diagnostics.clone();
+      std::fs::write(&test_file_path, spec.emit()).unwrap();
+      spec
+    } else {
+      spec
+    };
     assert_eq!(
       result.output.dts,
       spec.output_file.text,
+      "Should be same for {}",
+      test_file_path.display()
+    );
+    assert_eq!(
+      result.diagnostics,
+      spec.diagnostics,
       "Should be same for {}",
       test_file_path.display()
     );
@@ -63,6 +88,7 @@ async fn test_dts_specs() {
 struct Spec {
   files: Vec<File>,
   output_file: File,
+  diagnostics: Vec<Diagnostic>,
 }
 
 impl Spec {
@@ -73,6 +99,10 @@ impl Spec {
       text.push('\n');
     }
     text.push_str(&self.output_file.emit());
+    if !self.diagnostics.is_empty() {
+      text.push_str("\n# diagnostics\n");
+      text.push_str(&serde_json::to_string_pretty(&self.diagnostics).unwrap());
+    }
     text
   }
 }
@@ -134,7 +164,19 @@ fn parse_spec(text: String) -> Spec {
       .position(|f| f.specifier == "output.js" || f.specifier == "output.d.ts")
       .unwrap(),
   );
-  Spec { files, output_file }
+  let diagnostics = if let Some(index) =
+    files.iter().position(|f| f.specifier == "diagnostics")
+  {
+    let diagnostic_file = files.remove(index);
+    serde_json::from_str(&diagnostic_file.text).unwrap()
+  } else {
+    Vec::new()
+  };
+  Spec {
+    files,
+    output_file,
+    diagnostics,
+  }
 }
 
 fn get_files_in_dir_recursive(path: &Path) -> Vec<(PathBuf, String)> {

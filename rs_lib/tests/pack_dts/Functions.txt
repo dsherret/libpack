@@ -82,3 +82,31 @@ export function k(a: number, { b, c, d }?: WalkOptions): AsyncIterableIterator<s
 export function l(): Generator<unknown, void, unknown>;
 export function m(value: string): number;
 export function m(value: number): string;
+
+# diagnostics
+[
+  {
+    "message": "Missing return type for function with return statement.",
+    "specifier": "file:///mod.ts",
+    "lineAndColumn": {
+      "lineNumber": 10,
+      "columnNumber": 8
+    }
+  },
+  {
+    "message": "Missing return type for function with return statement.",
+    "specifier": "file:///mod.ts",
+    "lineAndColumn": {
+      "lineNumber": 38,
+      "columnNumber": 8
+    }
+  },
+  {
+    "message": "Missing return type for function with return statement.",
+    "specifier": "file:///mod.ts",
+    "lineAndColumn": {
+      "lineNumber": 41,
+      "columnNumber": 8
+    }
+  }
+]
