@@ -563,27 +563,25 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
     // insert a void type when there's no return type
     if n.return_type.is_none() {
       // todo: this should go into if statements and other things as well
-      let is_last_return = n
-        .body
-        .as_ref()
-        .and_then(|b| b.stmts.last())
-        .map(|last_stmt| matches!(last_stmt, Stmt::Return(..)))
-        .unwrap_or(false);
+      let has_return_stmt = get_return_stmt_from_function(n).is_some();
 
-      let line_and_column = self
-        .parsed_source
-        .text_info()
-        .line_and_column_display(n.start());
-      self.reporter.diagnostic(Diagnostic {
-        message: "Missing return type.".to_string(),
-        specifier: self.module_specifier.to_string(),
-        line_and_column: Some(LineAndColumnDisplay {
-          line_number: line_and_column.line_number,
-          column_number: line_and_column.column_number,
-        }),
-      });
+      if has_return_stmt {
+        let line_and_column = self
+          .parsed_source
+          .text_info()
+          .line_and_column_display(n.start());
+        self.reporter.diagnostic(Diagnostic {
+          message: "Missing return type for function with return statement."
+            .to_string(),
+          specifier: self.module_specifier.to_string(),
+          line_and_column: Some(LineAndColumnDisplay {
+            line_number: line_and_column.line_number,
+            column_number: line_and_column.column_number,
+          }),
+        });
+      }
 
-      let return_type = Box::new(if is_last_return {
+      let return_type = Box::new(if has_return_stmt {
         ts_keyword_type(TsKeywordTypeKind::TsUnknownKeyword)
       } else {
         ts_keyword_type(TsKeywordTypeKind::TsVoidKeyword)
@@ -1353,5 +1351,59 @@ fn maybe_infer_type_from_expr(expr: &Expr) -> Option<TsType> {
     | Expr::PrivateName(_)
     | Expr::OptChain(_)
     | Expr::Invalid(_) => None,
+  }
+}
+
+fn get_return_stmt_from_function<'a>(
+  func: &'a Function,
+) -> Option<&'a ReturnStmt> {
+  let body = func.body.as_ref()?;
+  get_return_stmt_from_stmts(&body.stmts)
+}
+
+fn get_return_stmt_from_stmts<'a>(stmts: &'a [Stmt]) -> Option<&'a ReturnStmt> {
+  for stmt in stmts {
+    if let Some(return_stmt) = get_return_stmt_from_stmt(stmt) {
+      return Some(return_stmt);
+    }
+  }
+
+  None
+}
+
+fn get_return_stmt_from_stmt<'a>(stmt: &'a Stmt) -> Option<&'a ReturnStmt> {
+  match stmt {
+    Stmt::Block(n) => get_return_stmt_from_stmts(&n.stmts),
+    Stmt::With(n) => get_return_stmt_from_stmt(&n.body),
+    Stmt::Return(n) => Some(n),
+    Stmt::Labeled(n) => get_return_stmt_from_stmt(&n.body),
+    Stmt::If(n) => get_return_stmt_from_stmt(&n.cons),
+    Stmt::Switch(n) => n
+      .cases
+      .iter()
+      .find_map(|case| get_return_stmt_from_stmts(&case.cons)),
+    Stmt::Try(n) => get_return_stmt_from_stmts(&n.block.stmts)
+      .or_else(|| {
+        n.handler
+          .as_ref()
+          .and_then(|h| get_return_stmt_from_stmts(&h.body.stmts))
+      })
+      .or_else(|| {
+        n.finalizer
+          .as_ref()
+          .and_then(|f| get_return_stmt_from_stmts(&f.stmts))
+      }),
+    Stmt::While(n) => get_return_stmt_from_stmt(&n.body),
+    Stmt::DoWhile(n) => get_return_stmt_from_stmt(&n.body),
+    Stmt::For(n) => get_return_stmt_from_stmt(&n.body),
+    Stmt::ForIn(n) => get_return_stmt_from_stmt(&n.body),
+    Stmt::ForOf(n) => get_return_stmt_from_stmt(&n.body),
+    Stmt::Break(_)
+    | Stmt::Continue(_)
+    | Stmt::Throw(_)
+    | Stmt::Debugger(_)
+    | Stmt::Decl(_)
+    | Stmt::Expr(_)
+    | Stmt::Empty(_) => None,
   }
 }
