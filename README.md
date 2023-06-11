@@ -89,7 +89,7 @@ Add a `lib_pack` and `build` deno task to your _deno.json_ file:
 // deno.json
 {
   "tasks": {
-    "build": "rm -rf dist && deno task lib_pack build mod.ts"
+    "build": "rm -rf dist && deno task lib_pack build mod.ts",
     "lib_pack": "deno run -A https://deno.land/x/lib_pack@{VERSIONGOESHERE}/main.ts --output-folder=dist"
   },
   "imports": {

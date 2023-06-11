@@ -63,22 +63,27 @@ export async function pack(options: PackOptions) {
       outputDiagnostic(diagnostic);
     }
   });
+  const baseNameNoExt = path.basename(options.entryPoint).slice(0,
+    path.extname(options.entryPoint).length * -1,
+  );
   const jsOutputFolder = path.resolve(options.outputFolder);
-  const jsOutputPath = path.join(options.outputFolder, "mod.js");
-  const tsOutputPath = path.join(options.outputFolder, "mod.ts");
-  const dtsOutputPath = path.join(jsOutputFolder, "mod.d.ts");
+  const jsOutputPath = path.join(options.outputFolder, `${baseNameNoExt}.js`);
+  const tsOutputPath = path.join(options.outputFolder, `${baseNameNoExt}.ts`);
+  const dtsOutputPath = path.join(jsOutputFolder, `${baseNameNoExt}.d.ts`);
   await Deno.mkdir(jsOutputFolder, { recursive: true });
   await Deno.writeTextFileSync(
     jsOutputPath,
-    `/// <reference types="./mod.d.ts" />\n${output.js}`,
+    `/// <reference types="./${baseNameNoExt}.d.ts" />\n${output.js}`,
   );
   await Deno.writeTextFileSync(
     tsOutputPath,
     (() => {
-      let text = `// @deno-types="./mod.d.ts"\nexport * from "./mod.js";\n`;
+      let text =
+        `// @deno-types="./${baseNameNoExt}.d.ts"\nexport * from "./${baseNameNoExt}.js";\n`;
       if (output.hasDefaultExport) {
-        text +=
-          `import defaultExport from "./mod.js";\nexport default defaultExport;`;
+        text += `// @deno-types="./${baseNameNoExt}.d.ts"\n`;
+        text += `import defaultExport from "./${baseNameNoExt}.js";\n`;
+        text += `export default defaultExport;`;
       }
       return text;
     })(),
