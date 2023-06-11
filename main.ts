@@ -5,7 +5,7 @@ import { pack } from "./mod.ts";
 
 const args = parse(Deno.args, {
   boolean: ["no-deno-json", "no-check", "no-tests"],
-  string: ["output-folder", "publish-branch", "release-tag-prefix"],
+  string: ["output-folder", "build-branch", "release-tag-prefix"],
 });
 
 const firstArg = args._[0];
@@ -20,14 +20,19 @@ if (firstArg === "build") {
 async function buildCommand() {
   const rawEntryPoint = args._[1];
   if (typeof rawEntryPoint !== "string") {
-    throw new Error("Expected an entry point path to be specified as the first argument to the `build` command.")
+    throw new Error(
+      "Expected an entry point path to be specified as the first argument to the `build` command.",
+    );
   }
 
   const outputFolder = path.resolve(getArg("output-folder"));
   const entryPoint = path.resolve(rawEntryPoint);
   const entryPointExt = path.extname(entryPoint);
   const entryPointBaseName = path.basename(entryPoint);
-  const entryPointNoExt = entryPointBaseName.slice(0, -1 * entryPointExt.length);
+  const entryPointNoExt = entryPointBaseName.slice(
+    0,
+    -1 * entryPointExt.length,
+  );
 
   const testFile = args["no-tests"]
     ? undefined
@@ -62,11 +67,11 @@ async function publishCommand() {
   const module = await import(publishFile);
   const publish: typeof import("./publish.ts").publish = module.publish;
   await publish({
-    branch: getArg("publish-branch"),
+    branch: getArg("build-branch"),
     folder: getArg("output-folder"),
     tagPrefix: getArg("release-tag-prefix"),
     token: getEnv("GITHUB_TOKEN"),
-  })
+  });
 }
 
 function getEnv(name: string): string {
@@ -77,7 +82,9 @@ function getEnv(name: string): string {
   return env;
 }
 
-function getArg<T extends keyof typeof args>(name: T): NonNullable<(typeof args)[T]> {
+function getArg<T extends keyof typeof args>(
+  name: T,
+): NonNullable<(typeof args)[T]> {
   const value = args[name];
   if (value == null) {
     throw new Error(`Expected --${name} to be set.`);

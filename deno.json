@@ -1,10 +1,10 @@
 {
   "lock": false,
   "tasks": {
-    "build": "rm -rf dist && mkdir -p dist && deno task build:main",
+    "build": "rm -rf dist && mkdir -p dist && deno task build:main && deno task build:publish",
     "build:main": "cp lib/rs_lib_bg.wasm dist/rs_lib_bg.wasm && cp main.ts dist/main.ts && deno task lib_pack build mod.ts && deno check dist/main.ts",
     "build:publish": "deno task lib_pack build publish.ts",
-    "lib_pack": "deno run -A main.ts --output-folder=dist --publish-branch=build --publish-tag-prefix=release/",
+    "lib_pack": "deno run -A main.ts --output-folder=dist --build-branch=build --publish-tag-prefix=release/",
     "wasmbuild": "deno run -A https://deno.land/x/wasmbuild@0.14.1/main.ts"
   },
   "imports": {

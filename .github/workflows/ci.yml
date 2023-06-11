@@ -33,4 +33,4 @@ jobs:
         if: github.ref == 'refs/heads/main'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: deno task lib_pack publish --publish-branch=build --release-tag-prefix=release/
+        run: deno task lib_pack publish --build-branch=build --release-tag-prefix=release/

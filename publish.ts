@@ -1,4 +1,4 @@
-import { encode } from "$std/encoding/base64.ts"
+import { encode } from "$std/encoding/base64.ts";
 import $ from "https://deno.land/x/dax@0.32.0/mod.ts";
 
 $.setPrintCommand(true);
@@ -21,23 +21,25 @@ export async function publish(input: Input) {
     branch,
     tagPrefix,
     gitUserName,
-    gitUserEmail
+    gitUserEmail,
   } = input;
 
-  if (Deno.env.get('GITHUB_EVENT_NAME') === 'tag') {
-    const refTag = Deno.env.get('GITHUB_REF')?.replace("refs/tags/", "") ?? "";
+  if (Deno.env.get("GITHUB_EVENT_NAME") === "tag") {
+    const refTag = Deno.env.get("GITHUB_REF")?.replace("refs/tags/", "") ?? "";
     if (refTag.startsWith(tagPrefix)) {
       throw new Error(
         `Tag '${refTag}' starts with the tag prefix '${tagPrefix}'. ` +
-        `You probably have your workflow configured incorrectly as this step ` +
-        `shouldn't run on tags with the tag prefix.`
+          `You probably have your workflow configured incorrectly as this step ` +
+          `shouldn't run on tags with the tag prefix.`,
       );
     }
   }
 
   const currentBranch = await $`git rev-parse --abbrev-ref HEAD`.text();
   if (currentBranch == branch) {
-    throw new Error(`The current branch (${currentBranch}) was the same as the output branch (${branch}). Perhaps you're accidentally copying the GitHub Actions workflow file to the output branch?`);
+    throw new Error(
+      `The current branch (${currentBranch}) was the same as the output branch (${branch}). Perhaps you're accidentally copying the GitHub Actions workflow file to the output branch?`,
+    );
   }
 
   const currentSha = await $`git rev-parse HEAD`.text();
@@ -46,14 +48,14 @@ export async function publish(input: Input) {
   const publishDir = await $`realpath ${folder}`.text();
   $.logLight(`Publish dir: ${publishDir}`);
 
-  const TEMP_DIR = `${Deno.env.get('RUNNER_TEMP')}/deno-x-publish`;
-  const USER_NAME = gitUserName ?? 'github-actions';
-  const USER_EMAIL = gitUserEmail ?? 'github-actions@github.com';
+  const TEMP_DIR = `${Deno.env.get("RUNNER_TEMP")}/deno-x-publish`;
+  const USER_NAME = gitUserName ?? "github-actions";
+  const USER_EMAIL = gitUserEmail ?? "github-actions@github.com";
 
   $.logStep(`Creating temp dir ${TEMP_DIR}`);
   await $`mkdir -p ${TEMP_DIR}`;
 
-  const REPO_URL = `https://github.com/${Deno.env.get('GITHUB_REPOSITORY')}/`;
+  const REPO_URL = `https://github.com/${Deno.env.get("GITHUB_REPOSITORY")}/`;
   const AUTH = encode(`${USER_NAME}:${token}`);
 
   $.logStep(`Cloning repo...`);
@@ -65,7 +67,8 @@ export async function publish(input: Input) {
   await $`git config user.email ${USER_EMAIL}`.text();
   await $`git config http.${REPO_URL}.extraheader "Authorization: Basic ${AUTH}"`;
 
-  const remoteBranch = await $`git ls-remote --exit-code ${REPO_URL} ${branch}`.text();
+  const remoteBranch = await $`git ls-remote --exit-code ${REPO_URL} ${branch}`
+    .text();
   if (remoteBranch) {
     await $`git fetch origin ${branch}`;
     $.logStep(`Checking out branch ${branch} from ${REPO_URL}...`);
@@ -79,7 +82,6 @@ export async function publish(input: Input) {
     delay: 200,
     count: 5,
     action: async () => {
-
       $.logStep(`Cleaning repo...`);
       await $`git rm --ignore-unmatch -rf .`;
 
@@ -90,7 +92,8 @@ export async function publish(input: Input) {
       await $`git add .`;
       await $`git commit --allow-empty -m "Publish ${currentSha}"`;
 
-      const result = await $`git push --set-upstream origin ${branch}`.noThrow();
+      const result = await $`git push --set-upstream origin ${branch}`
+        .noThrow();
       if (result.code === 0) {
         return;
       }
@@ -99,11 +102,14 @@ export async function publish(input: Input) {
       await $`git fetch origin ${branch}`;
       await $`git reset --hard origin/${branch}`;
       throw new Error("Failed.");
-    }
+    },
   });
 
-  if (Deno.env.get('GITHUB_EVENT_NAME') === 'tag') {
-    const refTag = (await $`echo ${Deno.env.get('GITHUB_REF')}`.text()).replace("refs/tags/", "");
+  if (Deno.env.get("GITHUB_EVENT_NAME") === "tag") {
+    const refTag = (await $`echo ${Deno.env.get("GITHUB_REF")}`.text()).replace(
+      "refs/tags/",
+      "",
+    );
     const finalTag = `${tagPrefix}${refTag}`;
     $.logStep(`Publishing tag '${finalTag}'...`);
     await $`git tag ${finalTag} ${branch}`;

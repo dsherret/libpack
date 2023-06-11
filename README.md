@@ -33,12 +33,13 @@ Non goals:
 ## Why?
 
 1. Performance.
-  - Type checking only occurs on a single bundled .d.ts file
-  - No waterfalling with internal modules within a library because there is only
-    a single JS file.
-  - Compiling of TS to JS is done ahead of time.
+   - Type checking only occurs on a single bundled .d.ts file
+   - No waterfalling with internal modules within a library because there is
+     only a single JS file.
+   - Compiling of TS to JS is done ahead of time.
 2. Private APIs stay private.
-  - People can't import your internal modules. Only what's exported from the main entrypoint is available.
+   - People can't import your internal modules. Only what's exported from the
+     main entrypoint is available.
 
 ## Declaration emit
 
@@ -82,22 +83,25 @@ Deno.test("adds numbers", () => {
 });
 ```
 
-Add a `build` deno task to your _deno.json_ file:
+Add a `lib_pack` and `build` deno task to your _deno.json_ file:
 
-```js
+```jsonc
+// deno.json
 {
   "tasks": {
     "build": "rm -rf dist && deno task lib_pack build mod.ts"
     "lib_pack": "deno run -A https://deno.land/x/lib_pack@{VERSIONGOESHERE}/main.ts --output-folder=dist"
   },
   "imports": {
-    "$std/": "https://deno.land/std@0.191.0/" // or use a newer version
+    "$std/": "https://deno.land/std@0.191.0/"
   },
-  "exclude": ["dist"]
+  "exclude": [
+    "dist"
+  ]
 }
 ```
 
-Then run:
+Then try it out:
 
 ```sh
 deno task build
@@ -114,7 +118,8 @@ This will:
 
 Publishing works by:
 
-1. We tag our repo with a version number. For example: `1.0.0`.
+1. We manually tag the repo with a version number. For example: `1.0.0`.
+   - This can be done via git or via a GitHub release.
 1. A GH Actions Workflow is triggered for that tag.
    1. It builds the output to a `dist` directory.
    1. It pushes the `dist` directory to a separate orphaned `build` branch.
@@ -167,5 +172,5 @@ Publishing works by:
            if: github.ref == 'refs/heads/main'
            env:
              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-           run: deno task lib_pack publish --publish-branch=build --release-tag-prefix=release/
+           run: deno task lib_pack publish --build-branch=build --release-tag-prefix=release/
    ```
