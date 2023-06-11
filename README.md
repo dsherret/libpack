@@ -32,9 +32,13 @@ Non goals:
 
 ## Why?
 
-Performance. Large libraries with many files or deeply nested modules can
-improve their loading times and especially type checking times by being
-distributed as a single JS file with a separate corresponding declaration file.
+1. Performance.
+  - Type checking only occurs on a single bundled .d.ts file
+  - No waterfalling with internal modules within a library because there is only
+    a single JS file.
+  - Compiling of TS to JS is done ahead of time.
+2. Private APIs stay private.
+  - People can't import your internal modules. Only what's exported from the main entrypoint is available.
 
 ## Declaration emit
 
@@ -83,7 +87,8 @@ Add a `build` deno task to your _deno.json_ file:
 ```js
 {
   "tasks": {
-    "build": "rm -rf dist && deno run -A https://deno.land/x/lib_pack@{VERSIONGOESHERE}/main.ts dist mod.ts"
+    "build": "rm -rf dist && deno task lib_pack build mod.ts"
+    "lib_pack": "deno run -A https://deno.land/x/lib_pack@{VERSIONGOESHERE}/main.ts --output-folder=dist"
   },
   "imports": {
     "$std/": "https://deno.land/std@0.191.0/" // or use a newer version
@@ -158,12 +163,9 @@ Publishing works by:
          - name: Build
            run: deno task build
 
-         - name: Push to build branch and publish if tag
-           uses: denoland/publish-folder@3fb8b551312e1886d05d856bb50e61c13dd4b6a4
+         - name: Push to build branch and release if tag
            if: github.ref == 'refs/heads/main'
-           with:
-             token: ${{ secrets.GITHUB_TOKEN }}
-             folder: dist
-             branch: build
-             tag-prefix: release/
+           env:
+             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+           run: deno task lib_pack publish --publish-branch=build --release-tag-prefix=release/
    ```

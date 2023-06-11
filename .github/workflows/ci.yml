@@ -29,11 +29,8 @@ jobs:
       - name: Build
         run: deno task build
 
-      - name: Push to build branch and publish if tag
-        uses: denoland/publish-folder@3fb8b551312e1886d05d856bb50e61c13dd4b6a4
+      - name: Push to build branch and release if tag
         if: github.ref == 'refs/heads/main'
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          folder: dist
-          branch: build
-          tag-prefix: release/
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: deno task lib_pack publish --publish-branch=build --release-tag-prefix=release/
