@@ -70,11 +70,11 @@ async function publishCommand() {
     branch: getArg("build-branch"),
     folder: getArg("output-folder"),
     tagPrefix: getArg("release-tag-prefix"),
-    token: getEnv("GITHUB_TOKEN"),
+    token: getEnvVar("GITHUB_TOKEN"),
   });
 }
 
-function getEnv(name: string): string {
+function getEnvVar(name: string): string {
   const env = Deno.env.get(name);
   if (env == null) {
     throw new Error(`Expected environment variable ${name} to be set.`);

@@ -24,8 +24,11 @@ export async function publish(input: Input) {
     gitUserEmail,
   } = input;
 
-  if (Deno.env.get("GITHUB_EVENT_NAME") === "tag") {
-    const refTag = Deno.env.get("GITHUB_REF")?.replace("refs/tags/", "") ?? "";
+  const githubRef = getEnvVar("GITHUB_REF");
+  const githubEventName = getEnvVar("GITHUB_EVENT_NAME");
+
+  if (githubEventName === "tag") {
+    const refTag = githubRef.replace("refs/tags/", "");
     if (refTag.startsWith(tagPrefix)) {
       throw new Error(
         `Tag '${refTag}' starts with the tag prefix '${tagPrefix}'. ` +
@@ -48,14 +51,14 @@ export async function publish(input: Input) {
   const publishDir = await $`realpath ${folder}`.text();
   $.logLight(`Publish dir: ${publishDir}`);
 
-  const TEMP_DIR = `${Deno.env.get("RUNNER_TEMP")}/deno-x-publish`;
+  const TEMP_DIR = `${getEnvVar("RUNNER_TEMP")}/deno-x-publish`;
   const USER_NAME = gitUserName ?? "github-actions";
   const USER_EMAIL = gitUserEmail ?? "github-actions@github.com";
 
   $.logStep(`Creating temp dir ${TEMP_DIR}`);
   await $`mkdir -p ${TEMP_DIR}`;
 
-  const REPO_URL = `https://github.com/${Deno.env.get("GITHUB_REPOSITORY")}/`;
+  const REPO_URL = `https://github.com/${getEnvVar("GITHUB_REPOSITORY")}/`;
   const AUTH = encode(`${USER_NAME}:${token}`);
 
   $.logStep(`Cloning repo...`);
@@ -78,7 +81,7 @@ export async function publish(input: Input) {
   }
 
   await $.withRetries({
-    delay: 200,
+    delay: 500,
     count: 5,
     action: async () => {
       $.logStep(`Cleaning repo...`);
@@ -104,11 +107,8 @@ export async function publish(input: Input) {
     },
   });
 
-  if (Deno.env.get("GITHUB_EVENT_NAME") === "tag") {
-    const refTag = (await $`echo ${Deno.env.get("GITHUB_REF")}`.text()).replace(
-      "refs/tags/",
-      "",
-    );
+  if (githubEventName === "tag") {
+    const refTag = githubRef.replace("refs/tags/", "");
     const finalTag = `${tagPrefix}${refTag}`;
     $.logStep(`Publishing tag '${finalTag}'...`);
     await $`git tag ${finalTag} ${branch}`;
@@ -116,4 +116,12 @@ export async function publish(input: Input) {
   } else {
     $.logLight(`Workflow was not a tag, so not tagging with prefix.`);
   }
+}
+
+function getEnvVar(name: string): string {
+  const env = Deno.env.get(name);
+  if (env == null) {
+    throw new Error(`Expected environment variable ${name} to be set.`);
+  }
+  return env;
 }
