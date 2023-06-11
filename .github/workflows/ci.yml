@@ -3,9 +3,8 @@ name: ci
 on:
   push:
     branches: ["main"]
+    tags: ["!release/**"]
   pull_request:
-    branches: ["main"]
-  tag:
     branches: ["main"]
 
 jobs:
@@ -14,10 +13,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      - uses: dsherret/rust-toolchain-file@v1
+      - uses: Swatinem/rust-cache@v2
       - uses: denoland/setup-deno@v1
 
       - name: Lint
         run: deno lint
+
+      - name: Build
+        run: deno task wasmbuild
 
       - name: Test
         run: deno test -A
@@ -27,7 +31,9 @@ jobs:
 
       - name: Push to build branch and publish if tag
         uses: denoland/publish-folder@3fb8b551312e1886d05d856bb50e61c13dd4b6a4
+        if: github.ref == 'refs/heads/main'
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           folder: dist
           branch: build
           tag-prefix: release/

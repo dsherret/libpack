@@ -87,7 +87,8 @@ Add a `build` deno task to your _deno.json_ file:
   },
   "imports": {
     "$std/": "https://deno.land/std@0.191.0/" // or use a newer version
-  }
+  },
+  "exclude": ["dist"]
 }
 ```
 
@@ -136,13 +137,8 @@ Publishing works by:
    on:
      push:
        branches: ["main"]
+       tags: ["!release/**"]
      pull_request:
-       branches: ["main"]
-     tag:
-       # It's important to limit this to only run the workflow
-       # when tagging the main branch and not when tagging with
-       # a `release/` prefix, as the `release/` prefix tag contains
-       # the built artifacts
        branches: ["main"]
 
    jobs:
@@ -164,7 +160,9 @@ Publishing works by:
 
          - name: Push to build branch and publish if tag
            uses: denoland/publish-folder@3fb8b551312e1886d05d856bb50e61c13dd4b6a4
+           if: github.ref == 'refs/heads/main'
            with:
+             token: ${{ secrets.GITHUB_TOKEN }}
              folder: dist
              branch: build
              tag-prefix: release/
