@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  tag:
+    branches: ["main"]
+
+jobs:
+  deno:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: denoland/setup-deno@v1
+
+      - name: Lint
+        run: deno lint
+
+      - name: Test
+        run: deno test -A
+
+      - name: Build
+        run: deno task build
+
+      - name: Push to build branch and publish if tag
+        uses: denoland/publish-folder@3fb8b551312e1886d05d856bb50e61c13dd4b6a4
+        with:
+          folder: dist
+          branch: build
+          tag-prefix: release/
