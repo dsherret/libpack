@@ -118,12 +118,15 @@ This will:
 
 Publishing works by:
 
-1. We manually tag the repo with a version number. For example: `1.0.0`.
+1. You manually tag the repo with a version number. For example: `1.0.0`.
    - This can be done via git or via a GitHub release.
 1. A GH Actions Workflow is triggered for that tag.
    1. It builds the output to a `dist` directory.
    1. It pushes the `dist` directory to a separate orphaned `build` branch.
-   1. It tags the `build` branch with a `release/` prefix tag.
+   1. It tags the `build` branch with a `release/` prefix tag (ex. we tag our
+      sources with `1.0.0` then this tags the repo with `release/1.0.0`).
+   1. The tagging of the `release/` prefixed tag triggers the webhook which
+      causes a deno.land/x publish.
 
 ### Setup
 

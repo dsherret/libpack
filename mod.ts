@@ -63,7 +63,8 @@ export async function pack(options: PackOptions) {
       outputDiagnostic(diagnostic);
     }
   });
-  const baseNameNoExt = path.basename(options.entryPoint).slice(0,
+  const baseNameNoExt = path.basename(options.entryPoint).slice(
+    0,
     path.extname(options.entryPoint).length * -1,
   );
   const jsOutputFolder = path.resolve(options.outputFolder);

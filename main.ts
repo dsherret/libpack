@@ -1,6 +1,6 @@
-import { parse } from "https://deno.land/std@0.190.0/flags/mod.ts";
-import * as path from "https://deno.land/std@0.190.0/path/mod.ts";
-import { exists } from "https://deno.land/std@0.190.0/fs/exists.ts";
+import { parse } from "https://deno.land/std@0.191.0/flags/mod.ts";
+import * as path from "https://deno.land/std@0.191.0/path/mod.ts";
+import { exists } from "https://deno.land/std@0.191.0/fs/exists.ts";
 import { pack } from "./mod.ts";
 
 const args = parse(Deno.args, {

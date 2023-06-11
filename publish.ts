@@ -13,7 +13,7 @@ interface Input {
 }
 
 export async function publish(input: Input) {
-  // rewritten from: https://github.com/denoland/publish-folder/blob/main/action.yml
+  // Rewritten from: https://github.com/denoland/publish-folder/blob/main/action.yml
   // Copyright (c) 2023 the Deno authors
   const {
     folder,
@@ -60,16 +60,15 @@ export async function publish(input: Input) {
 
   $.logStep(`Cloning repo...`);
   $.cd(TEMP_DIR);
-  await $`git -c http.${REPO_URL}.extraheader="Authorization: Basic ${AUTH}" clone --no-checkout ${REPO_URL} .`;
+  await $.raw`git -c http.${REPO_URL}.extraheader="Authorization: Basic ${AUTH}" clone --no-checkout ${REPO_URL} .`;
 
   $.logStep(`Setting up repo...`);
   await $`git config user.name ${USER_NAME}`.text();
   await $`git config user.email ${USER_EMAIL}`.text();
-  await $`git config http.${REPO_URL}.extraheader "Authorization: Basic ${AUTH}"`;
+  await $.raw`git config http.${REPO_URL}.extraheader "Authorization: Basic ${AUTH}"`;
 
-  const remoteBranch = await $`git ls-remote --exit-code ${REPO_URL} ${branch}`
-    .text();
-  if (remoteBranch) {
+  const remoteExists = (await $`git ls-remote --exit-code ${REPO_URL} ${branch}`.noThrow()).code === 0;
+  if (remoteExists) {
     await $`git fetch origin ${branch}`;
     $.logStep(`Checking out branch ${branch} from ${REPO_URL}...`);
     await $`git checkout ${branch}`;
