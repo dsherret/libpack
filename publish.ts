@@ -85,7 +85,7 @@ export async function publish(input: Input) {
   }
 
   await $.withRetries({
-    delay: 500,
+    delay: 2_000,
     count: 5,
     action: async () => {
       $.logStep(`Cleaning repo...`);
