@@ -6,13 +6,11 @@ Module concatenator for large Deno libraries (prototype).
 
 1. Concatenates your Deno TypeScript library to a single `.js` file with a
    corresponding single `.d.ts` file.
-
-- JS output somewhat similar to input.
-  - Very simple module concatenation. Code is written in such a way that it will
-    be easy to switch to
-    [module declarations](https://github.com/tc39/proposal-module-declarations)
-    in the future once stage 3 and supported in TypeScript.
-
+   - JS output somewhat similar to input.
+     - Very simple module concatenation. Code is written in such a way that it
+       will be easy to switch to
+       [module declarations](https://github.com/tc39/proposal-module-declarations)
+       in the future once stage 3 and supported in TypeScript.
 2. Unfurls your import map in the output—resolves remote module specifiers.
    - Allows you to use [import maps](https://deno.com/manual/basics/import_maps)
      in your library.

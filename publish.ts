@@ -52,8 +52,8 @@ export async function publish(input: Input) {
   $.logLight(`Publish dir: ${publishDir}`);
 
   const TEMP_DIR = `${getEnvVar("RUNNER_TEMP")}/deno-x-publish`;
-  const USER_NAME = gitUserName ?? "github-actions";
-  const USER_EMAIL = gitUserEmail ?? "github-actions@github.com";
+  const USER_NAME = gitUserName ?? "github-actions[bot]";
+  const USER_EMAIL = gitUserEmail ?? "github-actions[bot]@users.noreply.github.com";
 
   $.logStep(`Creating temp dir ${TEMP_DIR}`);
   await $`mkdir -p ${TEMP_DIR}`;
