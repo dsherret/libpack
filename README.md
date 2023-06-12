@@ -6,21 +6,20 @@ Module concatenator for large Deno libraries (prototype).
 
 1. Concatenates your Deno TypeScript library to a single `.js` file with a
    corresponding single `.d.ts` file.
-2. Unfurls your import map—resolves remote module specifiers.
-3. Type checks the outputted declaration file.
-4. Runs integration tests on the outputted JavaScript code using the
-   corresponding `x.test.ts` file for the entrypoint (ex. `mod.test.ts` for
-   `mod.ts`).
 
-Features:
-
-- Output somewhat similar to input.
+- JS output somewhat similar to input.
   - Very simple module concatenation. Code is written in such a way that it will
     be easy to switch to
     [module declarations](https://github.com/tc39/proposal-module-declarations)
     in the future once stage 3 and supported in TypeScript.
-- Allows you to use [import maps](https://deno.com/manual/basics/import_maps) in
-  your library.
+
+2. Unfurls your import map in the output—resolves remote module specifiers.
+   - Allows you to use [import maps](https://deno.com/manual/basics/import_maps)
+     in your library.
+3. Type checks the outputted declaration file.
+4. Runs integration tests on the outputted JavaScript code using the
+   corresponding `x.test.ts` file for the entrypoint (ex. `mod.test.ts` for
+   `mod.ts`).
 
 Non goals:
 
@@ -28,12 +27,13 @@ Non goals:
 - Concatenation of remote dependencies and npm packages. These should be left
   external.
 - Bundler optimizations.
-- General purpose bundler or application bundler to a single file.
+- General purpose bundler (ex. web bundler or npm package bundler)
 
 ## Why?
 
 1. Performance.
-   - Type checking only occurs on a single bundled .d.ts file
+   - Type checking only occurs on a single bundled .d.ts file that only contains
+     the public API.
    - No waterfalling with internal modules within a library because there is
      only a single JS file.
    - Compiling of TS to JS is done ahead of time.
@@ -89,7 +89,7 @@ Add a `libpack` and `build` deno task to your _deno.json_ file:
 // deno.json
 {
   "tasks": {
-    "build": "rm -rf dist && deno task libpack build mod.ts",
+    "build": "rm -rf dist && deno task libpack build mod.ts && cp README.md dist/README.md",
     "libpack": "deno run -A https://deno.land/x/libpack@{VERSIONGOESHERE}/main.ts --output-folder=dist"
   },
   "imports": {
@@ -115,6 +115,9 @@ This will:
    _mod.test.ts_.
 
 ### Publishing
+
+NOTE: THIS IS TOO COMPLICATED. I want to simplify this process. See
+[here](https://github.com/denoland/apiland/issues/100).
 
 Publishing works by:
 

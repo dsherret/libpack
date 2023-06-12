@@ -1,7 +1,7 @@
 {
   "lock": false,
   "tasks": {
-    "build": "rm -rf dist && mkdir -p dist && deno task build:main && deno task build:publish && cp main.ts dist/main.ts && deno check dist/main.ts",
+    "build": "rm -rf dist && mkdir -p dist && deno task build:main && deno task build:publish && cp main.ts dist/main.ts && deno check dist/main.ts && cp README.md dist/README.md",
     "build:main": "cp lib/rs_lib_bg.wasm dist/rs_lib_bg.wasm&& deno task libpack build mod.ts",
     "build:publish": "deno task libpack build publish.ts --no-tests",
     "libpack": "deno run -A main.ts --output-folder=dist --build-branch=build --publish-tag-prefix=release/",

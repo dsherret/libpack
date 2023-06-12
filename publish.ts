@@ -63,14 +63,18 @@ export async function publish(input: Input) {
 
   $.logStep(`Cloning repo...`);
   $.cd(TEMP_DIR);
-  await $.raw`git -c http.${REPO_URL}.extraheader="Authorization: Basic ${AUTH}" clone --no-checkout ${REPO_URL} .`;
+  await $
+    .raw`git -c http.${REPO_URL}.extraheader="Authorization: Basic ${AUTH}" clone --no-checkout ${REPO_URL} .`;
 
   $.logStep(`Setting up repo...`);
   await $`git config user.name ${USER_NAME}`.text();
   await $`git config user.email ${USER_EMAIL}`.text();
-  await $.raw`git config http.${REPO_URL}.extraheader "Authorization: Basic ${AUTH}"`;
+  await $
+    .raw`git config http.${REPO_URL}.extraheader "Authorization: Basic ${AUTH}"`;
 
-  const remoteExists = (await $`git ls-remote --exit-code ${REPO_URL} ${branch}`.noThrow()).code === 0;
+  const remoteExists =
+    (await $`git ls-remote --exit-code ${REPO_URL} ${branch}`.noThrow())
+      .code === 0;
   if (remoteExists) {
     await $`git fetch origin ${branch}`;
     $.logStep(`Checking out branch ${branch} from ${REPO_URL}...`);
