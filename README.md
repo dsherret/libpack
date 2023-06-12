@@ -1,4 +1,4 @@
-# lib_pack
+# libpack
 
 **DO NOT USE -- Very untested and doesn't work well with `deno doc`**
 
@@ -83,14 +83,14 @@ Deno.test("adds numbers", () => {
 });
 ```
 
-Add a `lib_pack` and `build` deno task to your _deno.json_ file:
+Add a `libpack` and `build` deno task to your _deno.json_ file:
 
 ```jsonc
 // deno.json
 {
   "tasks": {
-    "build": "rm -rf dist && deno task lib_pack build mod.ts",
-    "lib_pack": "deno run -A https://deno.land/x/lib_pack@{VERSIONGOESHERE}/main.ts --output-folder=dist"
+    "build": "rm -rf dist && deno task libpack build mod.ts",
+    "libpack": "deno run -A https://deno.land/x/libpack@{VERSIONGOESHERE}/main.ts --output-folder=dist"
   },
   "imports": {
     "$std/": "https://deno.land/std@0.191.0/"
@@ -175,5 +175,5 @@ Publishing works by:
            if: github.ref == 'refs/heads/main'
            env:
              GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-           run: deno task lib_pack publish --build-branch=build --release-tag-prefix=release/
+           run: deno task libpack publish --build-branch=build --release-tag-prefix=release/
    ```
