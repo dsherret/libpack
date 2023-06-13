@@ -59,7 +59,7 @@ export async function publish(input) {
       await pack1.default`rsync -av --progress ${publishDir}/ ${TEMP_DIR} --exclude '.git'`;
       pack1.default.logStep(`Pushing changes...`);
       await pack1.default`git add .`;
-      await pack1.default`git commit --allow-empty -m "Publish ${currentSha}\n\n${currentCommitMessage}"`;
+      await pack1.default`git commit --allow-empty -m "Publish ${currentSha}\n\n"${currentCommitMessage}`;
       const result = await pack1.default`git push --set-upstream origin ${branch}`.noThrow();
       if (result.code === 0) {
         return;
