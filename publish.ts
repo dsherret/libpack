@@ -100,7 +100,7 @@ export async function publish(input: Input) {
 
       $.logStep(`Pushing changes...`);
       await $`git add .`;
-      await $`git commit --allow-empty -m "Publish ${currentSha}\n\n${currentCommitMessage}"`;
+      await $`git commit --allow-empty -m "Publish ${currentSha}\n\n"${currentCommitMessage}`;
 
       const result = await $`git push --set-upstream origin ${branch}`
         .noThrow();
