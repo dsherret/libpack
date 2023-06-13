@@ -20,6 +20,10 @@ export async function publish(input) {
   }
   const currentSha = await pack1.default`git rev-parse HEAD`.text();
   pack1.default.logStep(`Publishing ${currentSha}`);
+  const currentCommitMessage = await pack1.default`git log -1 --pretty=%B`.text();
+  pack1.default.logGroup("Commit message", ()=>{
+    pack1.default.logLight(`${currentCommitMessage}`);
+  });
   const publishDir = await pack1.default`realpath ${folder}`.text();
   pack1.default.logLight(`Publish dir: ${publishDir}`);
   const TEMP_DIR = `${getEnvVar("RUNNER_TEMP")}/deno-x-publish`;
@@ -55,7 +59,7 @@ export async function publish(input) {
       await pack1.default`rsync -av --progress ${publishDir}/ ${TEMP_DIR} --exclude '.git'`;
       pack1.default.logStep(`Pushing changes...`);
       await pack1.default`git add .`;
-      await pack1.default`git commit --allow-empty -m "Publish ${currentSha}"`;
+      await pack1.default`git commit --allow-empty -m "Publish ${currentSha}\n\n${currentCommitMessage}"`;
       const result = await pack1.default`git push --set-upstream origin ${branch}`.noThrow();
       if (result.code === 0) {
         return;
