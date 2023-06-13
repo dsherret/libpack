@@ -155,6 +155,9 @@ Publishing works by:
      pull_request:
        branches: ["main"]
 
+   # for pushing to the build branch
+   permissions: write-all
+
    jobs:
      deno:
        runs-on: ubuntu-latest

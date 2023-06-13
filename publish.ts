@@ -47,6 +47,10 @@ export async function publish(input: Input) {
 
   const currentSha = await $`git rev-parse HEAD`.text();
   $.logStep(`Publishing ${currentSha}`);
+  const currentCommitMessage = await $`git log -1 --pretty=%B`.text();
+  $.logGroup("Commit message", () => {
+    $.logLight(`${currentCommitMessage}`);
+  });
 
   const publishDir = await $`realpath ${folder}`.text();
   $.logLight(`Publish dir: ${publishDir}`);
@@ -96,7 +100,7 @@ export async function publish(input: Input) {
 
       $.logStep(`Pushing changes...`);
       await $`git add .`;
-      await $`git commit --allow-empty -m "Publish ${currentSha}"`;
+      await $`git commit --allow-empty -m "Publish ${currentSha}\n\n${currentCommitMessage}"`;
 
       const result = await $`git push --set-upstream origin ${branch}`
         .noThrow();
