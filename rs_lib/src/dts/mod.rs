@@ -156,12 +156,23 @@ pub fn pack_dts(
             })),
           )))
         }
-        let is_locally_imported_remote =
-          module_symbol.traced_referrers().keys().any(|module_id| {
+        let is_locally_imported_remote = module_symbol
+          .traced_referrers()
+          .iter()
+          .any(|(module_id, imported_exports)| {
             let Some(module) = root_symbol.get_module_from_id(*module_id) else {
               return false;
             };
             module.specifier().scheme() == "file"
+              && match imported_exports {
+                ImportedExports::AllWithDefault => true,
+                ImportedExports::Star => true,
+                ImportedExports::Named(named) => {
+                  // ignore if this only imported the default import
+                  named.len() > 1
+                    || named.len() == 1 && !named.contains("default")
+                }
+              }
           });
         if is_locally_imported_remote {
           remote_module_items.push(ModuleItem::ModuleDecl(ModuleDecl::Import(
@@ -970,6 +981,7 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
       if should_retain {
         return true;
       }
+
       let decl = match item {
         ModuleItem::ModuleDecl(decl) => decl.as_export_decl().map(|d| &d.decl),
         ModuleItem::Stmt(stmt) => stmt.as_decl(),
