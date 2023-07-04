@@ -118,7 +118,7 @@ impl From<deno_ast::LineAndColumnDisplay> for LineAndColumnDisplay {
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
   pub message: String,
-  pub specifier: String,
+  pub specifier: ModuleSpecifier,
   pub line_and_column: Option<LineAndColumnDisplay>,
 }
 

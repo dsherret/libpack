@@ -14,11 +14,13 @@ use deno_ast::ParsedSource;
 use deno_ast::SourcePos;
 use deno_ast::SourceRange;
 use deno_ast::SourceRangedForSpanned;
+use deno_graph::type_tracer::ImportedExports;
+use deno_graph::type_tracer::ModuleId;
+use deno_graph::type_tracer::RootSymbol;
 use deno_graph::CapturingModuleParser;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleParser;
 
-use crate::dts::analyzer::ModuleAnalyzer;
 use crate::helpers::adjust_spans;
 use crate::helpers::fill_leading_comments;
 use crate::helpers::ident;
@@ -28,12 +30,28 @@ use crate::helpers::ts_keyword_type;
 use crate::Diagnostic;
 use crate::Reporter;
 
-use self::analyzer::has_internal_jsdoc;
-use self::analyzer::is_class_member_overload;
-use self::analyzer::ModuleSymbol;
+struct LibPackTypeTraceHandler<'a, TReporter: Reporter>(&'a TReporter);
 
-mod analyzer;
-mod tracer;
+impl<'a, TReporter: Reporter> deno_graph::type_tracer::TypeTraceHandler
+  for LibPackTypeTraceHandler<'a, TReporter>
+{
+  fn diagnostic(
+    &self,
+    diagnostic: deno_graph::type_tracer::TypeTraceDiagnostic,
+  ) {
+    self.0.diagnostic(Diagnostic {
+        message: match diagnostic.kind {
+            deno_graph::type_tracer::TypeTraceDiagnosticKind::UnsupportedDefaultExpr => concat!(
+              "Default expressions that are not identifiers are not supported. ",
+              "To work around this, extract out the expression to a variable, ",
+              "type the variable, and then default export the variable declaration.",
+            ).to_string(),
+        },
+        specifier: diagnostic.specifier,
+        line_and_column: diagnostic.line_and_column.map(|line_and_column| line_and_column.into()),
+      });
+  }
+}
 
 pub fn pack_dts(
   graph: &ModuleGraph,
@@ -41,7 +59,12 @@ pub fn pack_dts(
   reporter: &impl Reporter,
 ) -> Result<String, anyhow::Error> {
   // run the tracer
-  let module_analyzer = tracer::trace(graph, parser, reporter)?;
+  let root_symbol = deno_graph::type_tracer::trace_public_types(
+    &graph,
+    &graph.roots,
+    parser,
+    &LibPackTypeTraceHandler(reporter),
+  )?;
 
   let source_map = Rc::new(SourceMap::default());
   let global_comments = SingleThreadedComments::default();
@@ -55,9 +78,24 @@ pub fn pack_dts(
 
   for graph_module in graph.modules() {
     if is_remote_specifier(graph_module.specifier()) {
-      if let Some(module_symbol) = module_analyzer.get(graph_module.specifier())
+      if let Some(module_symbol) =
+        root_symbol.get_module_from_specifier(graph_module.specifier())
       {
-        if module_symbol.is_locally_imported_remote_default() {
+        let has_locally_imported_remote_default = module_symbol
+          .traced_referrers()
+          .iter()
+          .any(|(module_id, imported_exports)| {
+            let Some(module) = root_symbol.get_module_from_id(*module_id) else {
+              return false;
+            };
+            module.specifier().scheme() == "file"
+              && match imported_exports {
+                ImportedExports::AllWithDefault => true,
+                ImportedExports::Star => false,
+                ImportedExports::Named(named) => named.contains("default"),
+              }
+          });
+        if has_locally_imported_remote_default {
           let temp_name = format!(
             "{}DefaultImport",
             module_symbol.module_id().to_code_string()
@@ -118,7 +156,14 @@ pub fn pack_dts(
             })),
           )))
         }
-        if module_symbol.is_locally_imported_remote() {
+        let is_locally_imported_remote =
+          module_symbol.traced_referrers().keys().any(|module_id| {
+            let Some(module) = root_symbol.get_module_from_id(*module_id) else {
+              return false;
+            };
+            module.specifier().scheme() == "file"
+          });
+        if is_locally_imported_remote {
           remote_module_items.push(ModuleItem::ModuleDecl(ModuleDecl::Import(
             ImportDecl {
               span: DUMMY_SP,
@@ -140,7 +185,8 @@ pub fn pack_dts(
         }
       }
     } else {
-      if let Some(module_symbol) = module_analyzer.get(graph_module.specifier())
+      if let Some(module_symbol) =
+        root_symbol.get_module_from_specifier(graph_module.specifier())
       {
         let ranges = module_symbol.public_source_ranges();
         if !ranges.is_empty() || !module_symbol.traced_re_exports().is_empty() {
@@ -174,7 +220,7 @@ pub fn pack_dts(
             parsed_source: &parsed_source,
             ranges,
             graph,
-            module_analyzer: &module_analyzer,
+            root_symbol: &root_symbol,
             append_module_items: Default::default(),
             re_export_index: 0,
           };
@@ -239,11 +285,11 @@ struct DtsTransformer<'a, TReporter: Reporter> {
   reporter: &'a TReporter,
   module_name: Option<String>,
   module_specifier: &'a ModuleSpecifier,
-  module_symbol: &'a ModuleSymbol,
+  module_symbol: &'a deno_graph::type_tracer::ModuleSymbol,
   parsed_source: &'a ParsedSource,
   ranges: HashSet<SourceRange>,
   graph: &'a ModuleGraph,
-  module_analyzer: &'a ModuleAnalyzer<'a, TReporter>,
+  root_symbol: &'a RootSymbol,
   append_module_items: Vec<ModuleItem>,
   re_export_index: u32,
 }
@@ -572,7 +618,7 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
         self.reporter.diagnostic(Diagnostic {
           message: "Missing return type for function with return statement."
             .to_string(),
-          specifier: self.module_specifier.to_string(),
+          specifier: self.module_specifier.clone(),
           line_and_column: Some(line_and_column.into()),
         });
       }
@@ -711,7 +757,9 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
             true,
           );
           if let Some(specifier) = maybe_specifier {
-            if let Some(module_symbol) = self.module_analyzer.get(&specifier) {
+            if let Some(module_symbol) =
+              self.root_symbol.get_module_from_specifier(&specifier)
+            {
               let module_id = module_symbol.module_id();
               let is_remote = is_remote_specifier(&specifier);
               for specifier in &import_decl.specifiers {
@@ -1007,8 +1055,8 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
           .resolve_dependency(&src, self.module_specifier, true);
       if let Some(src_specifier) = maybe_src_specifier {
         let src_module_id = self
-          .module_analyzer
-          .get(&src_specifier)
+          .root_symbol
+          .get_module_from_specifier(&src_specifier)
           .unwrap()
           .module_id();
         for specifier in &mut n.specifiers {
@@ -1401,5 +1449,46 @@ fn get_return_stmt_from_stmt<'a>(stmt: &'a Stmt) -> Option<&'a ReturnStmt> {
     | Stmt::Decl(_)
     | Stmt::Expr(_)
     | Stmt::Empty(_) => None,
+  }
+}
+
+fn is_class_member_overload(member: &ClassMember) -> bool {
+  match member {
+    ClassMember::Constructor(ctor) => ctor.body.is_none(),
+    ClassMember::Method(method) => method.function.body.is_none(),
+    ClassMember::PrivateMethod(method) => method.function.body.is_none(),
+    ClassMember::ClassProp(_)
+    | ClassMember::PrivateProp(_)
+    | ClassMember::TsIndexSignature(_)
+    | ClassMember::AutoAccessor(_)
+    | ClassMember::StaticBlock(_)
+    | ClassMember::Empty(_) => false,
+  }
+}
+
+fn has_internal_jsdoc(source: &ParsedSource, pos: SourcePos) -> bool {
+  if let Some(comments) = source.comments().get_leading(pos) {
+    comments.iter().any(|c| {
+      c.kind == CommentKind::Block
+        && c.text.starts_with("*")
+        && c.text.contains("@internal")
+    })
+  } else {
+    false
+  }
+}
+
+trait ModuleIdExtensions {
+  fn to_default_code_string(&self) -> String;
+  fn to_code_string(&self) -> String;
+}
+
+impl ModuleIdExtensions for ModuleId {
+  fn to_default_code_string(&self) -> String {
+    format!("pack{}Default", self)
+  }
+
+  fn to_code_string(&self) -> String {
+    format!("pack{}", self)
   }
 }

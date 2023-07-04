@@ -100,7 +100,6 @@ impl<'a, TReporter: Reporter> Context<'a, TReporter> {
         module_symbol.add_traced_re_export(
           name.clone(),
           UniqueSymbol {
-            specifier: export_specifier.clone(),
             module_id: *module_id,
             symbol_id: *symbol_id,
           },

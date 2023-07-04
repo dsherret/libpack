@@ -66,7 +66,6 @@ pub struct FileDep {
 
 #[derive(Default, Debug)]
 pub struct Symbol {
-  // todo: store any implicit types here
   is_public: bool,
   decls: Vec<SourceRange>,
   deps: HashSet<Id>,
@@ -98,7 +97,6 @@ impl Symbol {
 
 #[derive(Debug)]
 pub struct UniqueSymbol {
-  pub specifier: ModuleSpecifier,
   pub module_id: ModuleId,
   pub symbol_id: SymbolId,
 }
@@ -600,15 +598,15 @@ impl<'a, TReporter: Reporter> SymbolFiller<'a, TReporter> {
               .source
               .text_info()
               .line_and_column_display(expr.start());
-            self.reporter.diagnostic(Diagnostic {
-                message: concat!(
-                  "Default expressions that are not identifiers are not supported. ",
-                  "To work around this, extract out the expression to a variable, ",
-                  "type the variable, and then default export the variable declaration."
-                ).to_string(),
-                specifier: self.source.specifier().to_string(),
-                line_and_column: Some(line_and_column.into()),
-              });
+            // self.reporter.diagnostic(Diagnostic {
+            //     message: concat!(
+            //       "Default expressions that are not identifiers are not supported. ",
+            //       "To work around this, extract out the expression to a variable, ",
+            //       "type the variable, and then default export the variable declaration."
+            //     ).to_string(),
+            //     specifier: self.source.specifier().to_string(),
+            //     line_and_column: Some(line_and_column.into()),
+            //   });
           }
         },
         ModuleDecl::ExportAll(n) => {
@@ -1091,32 +1089,6 @@ impl<'a> Visit for SymbolFillVisitor<'a> {
 
   fn visit_ts_qualified_name(&mut self, _n: &TsQualifiedName) {
     // todo!("qualified name");
-  }
-}
-
-pub fn has_internal_jsdoc(source: &ParsedSource, pos: SourcePos) -> bool {
-  if let Some(comments) = source.comments().get_leading(pos) {
-    comments.iter().any(|c| {
-      c.kind == CommentKind::Block
-        && c.text.starts_with("*")
-        && c.text.contains("@internal")
-    })
-  } else {
-    false
-  }
-}
-
-pub fn is_class_member_overload(member: &ClassMember) -> bool {
-  match member {
-    ClassMember::Constructor(ctor) => ctor.body.is_none(),
-    ClassMember::Method(method) => method.function.body.is_none(),
-    ClassMember::PrivateMethod(method) => method.function.body.is_none(),
-    ClassMember::ClassProp(_)
-    | ClassMember::PrivateProp(_)
-    | ClassMember::TsIndexSignature(_)
-    | ClassMember::AutoAccessor(_)
-    | ClassMember::StaticBlock(_)
-    | ClassMember::Empty(_) => false,
   }
 }
 
