@@ -26,7 +26,7 @@ export class Test {
   private myPrivateProp!: string = 2;
   someDep: Dep = new Dep();
 
-  constructor(public readonly text: string, public readonly otherProp = true, public a?: string) {
+  constructor(public readonly text: string, public readonly explicit: string = false, public readonly otherProp = true, public a?: string) {
     5;
   }
 
@@ -97,13 +97,14 @@ declare const symbol: Symbol;
  */ export class Test {
   #private;
   readonly text: string;
+  readonly explicit: string;
   readonly otherProp: boolean;
   a?: string;
   prop?: string;
   other: number;
   private myPrivateProp;
   someDep: Dep;
-  constructor(text: string, otherProp?: boolean, a?: string);
+  constructor(text: string, explicit?: string, otherProp?: boolean, a?: string);
   [symbol](): number;
   method(value?: boolean): unknown;
   protected test(): string;

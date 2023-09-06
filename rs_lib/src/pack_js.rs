@@ -247,7 +247,7 @@ pub fn pack(
             raw: None,
           }),
           type_only: false,
-          asserts: None,
+          with: None,
         })));
     } else {
       if let deno_graph::Module::Esm(_) = module {

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use anyhow::Result;
 use deno_ast::ModuleSpecifier;
+use deno_graph::source::CacheSetting;
 use deno_graph::source::LoadResponse;
 use deno_graph::source::Loader;
 use futures::Future;
@@ -114,6 +115,7 @@ impl Loader for InMemoryLoader {
     &mut self,
     specifier: &ModuleSpecifier,
     is_dynamic: bool,
+    _cache_setting: CacheSetting,
   ) -> Pin<Box<dyn Future<Output = Result<Option<LoadResponse>>> + 'static>> {
     let specifier = specifier.clone();
     let result = self.modules.get(&specifier).map(|result| match result {

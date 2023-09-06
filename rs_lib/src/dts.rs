@@ -117,7 +117,7 @@ pub fn pack_dts(
                 raw: None,
               }),
               type_only: false,
-              asserts: None,
+              with: None,
             },
           )));
           // This is done because `import something = defaultImport` is not valid
@@ -149,7 +149,7 @@ pub fn pack_dts(
                     )]),
                     src: None,
                     type_only: false,
-                    asserts: None,
+                    with: None,
                   }),
                 )]),
               })),
@@ -190,7 +190,7 @@ pub fn pack_dts(
                 raw: None,
               }),
               type_only: false,
-              asserts: None,
+              with: None,
             },
           )));
         }
@@ -287,7 +287,7 @@ impl ReExportName {
       })],
       src: None,
       type_only: false,
-      asserts: None,
+      with: None,
     }))
   }
 }
@@ -437,7 +437,11 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
               type_ann: match &prop.param {
                 TsParamPropParam::Ident(ident) => ident.type_ann.clone(),
                 TsParamPropParam::Assign(assign) => {
-                  assign.type_ann.clone().or_else(|| {
+                  let explicit_type_ann = match &*assign.left {
+                    Pat::Ident(binding_ident) => binding_ident.type_ann.clone(),
+                    _ => None,
+                  };
+                  explicit_type_ann.or_else(|| {
                     maybe_infer_type_from_expr(&*assign.right).map(|type_ann| {
                       Box::new(TsTypeAnn {
                         span: DUMMY_SP,
@@ -577,7 +581,7 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
             )]),
             src: None,
             type_only: false,
-            asserts: None,
+            with: None,
           })),
         ),
         _ => {}
@@ -805,7 +809,6 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
                       ModuleDecl::TsImportEquals(Box::new(
                         TsImportEqualsDecl {
                           span: DUMMY_SP,
-                          declare: false,
                           is_export: false,
                           is_type_only: false,
                           id: named.local.clone(),
@@ -852,7 +855,6 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
                       ModuleDecl::TsImportEquals(Box::new(
                         TsImportEqualsDecl {
                           span: DUMMY_SP,
-                          declare: false,
                           is_export: false,
                           is_type_only: false,
                           id: specifier.local.clone(),
@@ -896,7 +898,6 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
                       ModuleDecl::TsImportEquals(Box::new(
                         TsImportEqualsDecl {
                           span: DUMMY_SP,
-                          declare: false,
                           is_export: false,
                           is_type_only: false,
                           id: specifier.local.clone(),
@@ -925,7 +926,6 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
         .push(ModuleItem::ModuleDecl(ModuleDecl::TsImportEquals(
           Box::new(TsImportEqualsDecl {
             span: DUMMY_SP,
-            declare: false,
             is_export: false,
             is_type_only: false,
             id: ident(private_name.to_string()),
@@ -1090,7 +1090,6 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
               self.append_module_items.push(ModuleItem::ModuleDecl(
                 ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
                   span: DUMMY_SP,
-                  declare: false,
                   is_export: false,
                   is_type_only: false,
                   id: ident(private_name.to_string()),
@@ -1127,7 +1126,6 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
               self.append_module_items.push(ModuleItem::ModuleDecl(
                 ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
                   span: DUMMY_SP,
-                  declare: false,
                   is_export: false,
                   is_type_only: false,
                   id: ident(private_name.to_string()),

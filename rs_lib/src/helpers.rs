@@ -42,7 +42,7 @@ pub fn export_x_as_y(x: String, y: String) -> ModuleItem {
     })],
     src: None,
     type_only: false,
-    asserts: None,
+    with: None,
   }))
 }
 

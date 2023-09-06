@@ -1,5 +1,6 @@
 use anyhow::Context;
 use deno_ast::ModuleSpecifier;
+use deno_graph::source::CacheSetting;
 use deno_graph::source::Loader;
 use deno_graph::CapturingModuleAnalyzer;
 use deno_graph::DefaultModuleParser;
@@ -174,6 +175,7 @@ pub async fn rs_pack(
         module_analyzer: Some(&capturing_analyzer),
         reporter: None,
         npm_resolver: None,
+        workspace_members: Vec::new(),
       },
     )
     .await;
@@ -226,7 +228,7 @@ impl ImportMapResolver {
     loader: &mut dyn Loader,
   ) -> anyhow::Result<Self> {
     let response = loader
-      .load(import_map_url, false)
+      .load(import_map_url, false, CacheSetting::Use)
       .await?
       .ok_or_else(|| anyhow::anyhow!("Could not find {}", import_map_url))?;
     match response {
