@@ -220,9 +220,7 @@ dependencies = [
 
 [[package]]
 name = "deno_graph"
-version = "0.54.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcb7464fab13748a26407d0250ab3fb412a88d8b95c30b8a96aa5d49c79d4ee6"
+version = "0.56.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -230,6 +228,7 @@ dependencies = [
  "deno_ast",
  "deno_semver",
  "futures",
+ "import_map",
  "indexmap 2.0.0",
  "monch",
  "once_cell",
@@ -254,9 +253,9 @@ dependencies = [
 
 [[package]]
 name = "deno_semver"
-version = "0.4.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f739a9d90c47e2af7e2fcbae0976360f3fb5292f7288a084d035ed44d12a288"
+checksum = "d2d3f7f5a3b2ace62b8fdede8585f5fdbd4e7dba9cb33fcaf0db54887316feaa"
 dependencies = [
  "monch",
  "once_cell",

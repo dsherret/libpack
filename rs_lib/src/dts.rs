@@ -19,7 +19,6 @@ use deno_graph::type_tracer::ModuleId;
 use deno_graph::type_tracer::RootSymbol;
 use deno_graph::CapturingModuleParser;
 use deno_graph::ModuleGraph;
-use deno_graph::ModuleParser;
 
 use crate::helpers::adjust_spans;
 use crate::helpers::fill_leading_comments;
@@ -78,8 +77,9 @@ pub fn pack_dts(
 
   for graph_module in graph.modules() {
     if is_remote_specifier(graph_module.specifier()) {
-      if let Some(module_symbol) =
-        root_symbol.get_module_from_specifier(graph_module.specifier())
+      if let Some(module_symbol) = root_symbol
+        .get_module_from_specifier(graph_module.specifier())
+        .and_then(|m| m.esm())
       {
         let has_locally_imported_remote_default = module_symbol
           .traced_referrers()
@@ -196,18 +196,14 @@ pub fn pack_dts(
         }
       }
     } else {
-      if let Some(module_symbol) =
-        root_symbol.get_module_from_specifier(graph_module.specifier())
+      if let Some(module_symbol) = root_symbol
+        .get_module_from_specifier(graph_module.specifier())
+        .and_then(|m| m.esm())
       {
         let ranges = module_symbol.public_source_ranges();
         if !ranges.is_empty() || !module_symbol.traced_re_exports().is_empty() {
           let graph_module = graph_module.esm().unwrap();
-          // todo: consolidate with other code that does this
-          let parsed_source = parser.parse_module(
-            &graph_module.specifier,
-            graph_module.source.clone(),
-            graph_module.media_type,
-          )?;
+          let parsed_source = module_symbol.source();
 
           let file_name = FileName::Url(graph_module.specifier.clone());
           let source_file = source_map.new_source_file(
@@ -296,7 +292,7 @@ struct DtsTransformer<'a, TReporter: Reporter> {
   reporter: &'a TReporter,
   module_name: Option<String>,
   module_specifier: &'a ModuleSpecifier,
-  module_symbol: &'a deno_graph::type_tracer::ModuleSymbol,
+  module_symbol: &'a deno_graph::type_tracer::EsmModuleSymbol,
   parsed_source: &'a ParsedSource,
   ranges: HashSet<SourceRange>,
   graph: &'a ModuleGraph,

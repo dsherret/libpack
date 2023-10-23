@@ -2,6 +2,7 @@ use anyhow::Context;
 use deno_ast::ModuleSpecifier;
 use deno_graph::source::CacheSetting;
 use deno_graph::source::Loader;
+use deno_graph::source::ResolveError;
 use deno_graph::CapturingModuleAnalyzer;
 use deno_graph::DefaultModuleParser;
 use deno_graph::ParsedSourceStore;
@@ -263,10 +264,10 @@ impl deno_graph::source::Resolver for ImportMapResolver {
     &self,
     specifier: &str,
     referrer: &ModuleSpecifier,
-  ) -> Result<ModuleSpecifier, anyhow::Error> {
+  ) -> Result<ModuleSpecifier, ResolveError> {
     self
       .0
       .resolve(specifier, referrer)
-      .map_err(|err| err.into())
+      .map_err(|err| ResolveError::Other(err.into()))
   }
 }
