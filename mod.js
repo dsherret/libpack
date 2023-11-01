@@ -25,7 +25,7 @@ const pack3 = {
   // @generated file from wasmbuild -- do not edit
   // deno-lint-ignore-file
   // deno-fmt-ignore-file
-  // source-hash: b79a90c1a77e9ed63e2af307e05d57586b565ef0
+  // source-hash: fc6ddbbd69b2d1d7dd3fae979660dfe9929f8597
   let wasm;
   const heap = new Array(128).fill(undefined);
   heap.push(undefined, null, true, false);
@@ -229,7 +229,7 @@ const pack3 = {
     return real;
   }
   function __wbg_adapter_48(arg0, arg1, arg2) {
-    wasm.wasm_bindgen__convert__closures__invoke1_mut__ha283564d6e0ac605(arg0, arg1, addHeapObject(arg2));
+    wasm.wasm_bindgen__convert__closures__invoke1_mut__h989df39ca5fbddbf(arg0, arg1, addHeapObject(arg2));
   }
   function pack(options, on_diagnostic) {
     const ret = wasm.pack(addHeapObject(options), addHeapObject(on_diagnostic));
@@ -243,7 +243,7 @@ const pack3 = {
     }
   }
   function __wbg_adapter_94(arg0, arg1, arg2, arg3) {
-    wasm.wasm_bindgen__convert__closures__invoke2_mut__h9fb35c4d8237a109(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+    wasm.wasm_bindgen__convert__closures__invoke2_mut__h5af93f1c388db5f7(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
   }
   const imports = {
     __wbindgen_placeholder__: {
@@ -528,8 +528,8 @@ const pack3 = {
         const ret = wasm.memory;
         return addHeapObject(ret);
       },
-      __wbindgen_closure_wrapper2570: function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 327, __wbg_adapter_48);
+      __wbindgen_closure_wrapper2120: function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 257, __wbg_adapter_48);
         return addHeapObject(ret);
       }
     }
