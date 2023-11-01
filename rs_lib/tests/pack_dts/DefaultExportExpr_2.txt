@@ -6,15 +6,4 @@ export default 5;
 # output.d.ts
 export class Test {
 }
-
-# diagnostics
-[
-  {
-    "message": "Default expressions that are not identifiers are not supported. To work around this, extract out the expression to a variable, type the variable, and then default export the variable declaration.",
-    "specifier": "file:///mod.ts",
-    "lineAndColumn": {
-      "lineNumber": 3,
-      "columnNumber": 1
-    }
-  }
-]
+export default 5;

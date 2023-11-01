@@ -173,12 +173,11 @@ pub fn print_program(
       Some(&mut src_map_buf),
     ));
     writer.set_indent_str("  ");
-    let config = codegen::Config {
-      minify: false,
-      ascii_only: false,
-      omit_last_semi: false,
-      target: deno_ast::ES_VERSION,
-    };
+    let mut config = codegen::Config::default();
+    config.minify = false;
+    config.ascii_only = false;
+    config.omit_last_semi = false;
+    config.target = deno_ast::ES_VERSION;
     let mut emitter = codegen::Emitter {
       cfg: config,
       comments: Some(comments),

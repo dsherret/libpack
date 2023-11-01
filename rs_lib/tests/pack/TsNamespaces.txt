@@ -30,20 +30,18 @@ const pack0 = {
 })();
 let Testing;
 (function(Testing) {
-  let ThisOut;
   (function(ThisOut) {
-    var b = ThisOut.b = 3;
+    ThisOut.b = 3;
     let Test;
     (function(Test) {
       Test[Test["Value1"] = pack0.a] = "Value1";
-      Test[Test["Value2"] = b] = "Value2";
+      Test[Test["Value2"] = ThisOut.b] = "Value2";
     })(Test = ThisOut.Test || (ThisOut.Test = {}));
-  })(ThisOut = Testing.ThisOut || (Testing.ThisOut = {}));
+  })(Testing.ThisOut || (Testing.ThisOut = {}));
 })(Testing || (Testing = {}));
-(function(Testing1) {
-  var ThisOut;
+(function(Testing) {
   (function(ThisOut) {
     console.log(Testing.Test.Value1);
-  })(ThisOut = Testing1.ThisOut || (Testing1.ThisOut = {}));
+  })(Testing.ThisOut || (Testing.ThisOut = {}));
 })(Testing || (Testing = {}));
 console.log(Testing.ThisOut.Test.Value2);

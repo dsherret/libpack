@@ -634,11 +634,12 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
         });
       }
 
-      let return_type = Box::new(if has_return_stmt {
-        ts_keyword_type(TsKeywordTypeKind::TsUnknownKeyword)
-      } else {
-        ts_keyword_type(TsKeywordTypeKind::TsVoidKeyword)
-      });
+      let return_type =
+        Box::new(if has_return_stmt || n.is_generator || n.body.is_none() {
+          ts_keyword_type(TsKeywordTypeKind::TsUnknownKeyword)
+        } else {
+          ts_keyword_type(TsKeywordTypeKind::TsVoidKeyword)
+        });
       n.return_type = Some(Box::new(TsTypeAnn {
         span: DUMMY_SP,
         type_ann: if n.is_async {

@@ -119,6 +119,8 @@ export class OtherClass {
   constructor(value: string);
   constructor(value: number);
 }
+declare class InternalOnSignature {
+}
 declare module pack1 {
   export class Other {
     prop: string;

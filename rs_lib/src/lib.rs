@@ -2,6 +2,7 @@ use anyhow::Context;
 use deno_ast::ModuleSpecifier;
 use deno_graph::source::CacheSetting;
 use deno_graph::source::Loader;
+use deno_graph::source::ResolutionMode;
 use deno_graph::source::ResolveError;
 use deno_graph::CapturingModuleAnalyzer;
 use deno_graph::DefaultModuleParser;
@@ -51,6 +52,7 @@ impl Loader for JsLoader {
     &mut self,
     specifier: &ModuleSpecifier,
     _is_dynamic: bool,
+    _cache_setting: CacheSetting,
   ) -> deno_graph::source::LoadFuture {
     let specifier = specifier.to_string();
     Box::pin(async move {
@@ -264,6 +266,7 @@ impl deno_graph::source::Resolver for ImportMapResolver {
     &self,
     specifier: &str,
     referrer: &ModuleSpecifier,
+    _mode: ResolutionMode,
   ) -> Result<ModuleSpecifier, ResolveError> {
     self
       .0

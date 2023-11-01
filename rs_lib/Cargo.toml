@@ -9,8 +9,8 @@ crate_type = ["cdylib", "rlib"]
 [dependencies]
 anyhow = "1.0.71"
 console_error_panic_hook = "0.1.7"
-deno_ast = { version = "0.29.1", features = ["codegen", "module_specifier", "proposal", "react", "sourcemap", "transforms", "typescript", "visit", "transpiling"] }
-deno_graph = { version = "0.56.3", features = ["type_tracing"], path = "../../deno_graph" }
+deno_ast = { version = "0.31.3", features = ["codegen", "module_specifier", "proposal", "react", "sourcemap", "transforms", "typescript", "visit", "transpiling"] }
+deno_graph = { version = "0.59.2", features = ["type_tracing"] }
 indexmap = "1.9.3"
 import_map = "0.15.0"
 jsonc-parser = { version = "0.21.1", features = ["serde"] }
