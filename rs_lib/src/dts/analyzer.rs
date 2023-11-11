@@ -114,6 +114,13 @@ fn resolve_export_to_definition(
   export: &deno_graph::symbols::ResolvedExport<'_>,
 ) -> Option<SymbolOrRemoteDep> {
   let paths = root_symbol.find_definition_paths(export.module, export.symbol());
+  resolve_paths_to_remote_path(root_symbol, paths)
+}
+
+pub fn resolve_paths_to_remote_path(
+  root_symbol: &RootSymbol,
+  paths: Vec<DefinitionPath>,
+) -> Option<SymbolOrRemoteDep> {
   let mut pending_paths = paths.into_iter().collect::<VecDeque<_>>();
   while let Some(path) = pending_paths.pop_front() {
     debug_assert!(!is_remote_specifier(path.module().specifier()));

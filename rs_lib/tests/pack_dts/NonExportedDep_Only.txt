@@ -1,0 +1,17 @@
+# mod.ts
+import { SomeClassName as RenamedHere } from "./other.ts";
+
+export class MyClass {
+  prop: RenamedHere;
+}
+
+# other.ts
+export class SomeClassName {
+}
+
+# output.d.ts
+export class MyClass {
+  prop: SomeClassName;
+}
+class SomeClassName {
+}
