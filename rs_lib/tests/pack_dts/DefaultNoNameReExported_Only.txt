@@ -1,0 +1,51 @@
+# mod.ts
+export { default as MyClass } from "./class.ts";
+export { default as myFunction } from "./function.ts";
+export { default as MyClass2 } from "./class2.ts";
+export type { default as MyInterface } from "./interface.ts";
+export type { default as MyOtherInterface } from "./interface2.ts";
+
+# class.ts
+/** Comment1 */
+export default class {
+  prop: string;
+};
+
+# class2.ts
+/** Comment3 */
+export default class {
+  prop2: string;
+};
+
+# function.ts
+/** Comment2 */
+export default function() {
+};
+
+# interface.ts
+/** Comment4 */
+export default interface MyInterface {
+  prop1: string;
+}
+
+# interface2.ts
+/** Comment5 */
+export default interface MyInterface {
+  prop2: string;
+}
+
+# output.d.ts
+/** Comment1 */ class NoName {
+  prop: string;
+}
+/** Comment2 */ function noName(): void;
+/** Comment3 */ class NoName1 {
+  prop2: string;
+}
+/** Comment4 */ export interface MyInterface {
+  prop1: string;
+}
+/** Comment5 */ interface MyInterface1 {
+  prop2: string;
+}
+export { NoName as MyClass, noName as myFunction, NoName1 as MyClass2, MyInterface1 as MyOtherInterface };
