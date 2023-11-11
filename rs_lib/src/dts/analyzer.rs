@@ -1,16 +1,11 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
 use std::collections::VecDeque;
 
 use deno_graph::symbols::Definition;
 use deno_graph::symbols::DefinitionPath;
 use deno_graph::symbols::FileDep;
-use deno_graph::symbols::FileDepName;
 use deno_graph::symbols::ModuleId;
-use deno_graph::symbols::ModuleInfo;
 use deno_graph::symbols::ModuleInfoRef;
 use deno_graph::symbols::ResolvedExportOrReExportAllPath;
-use deno_graph::symbols::ResolvedSymbolDepEntry;
 use deno_graph::symbols::RootSymbol;
 use deno_graph::symbols::Symbol;
 use deno_graph::symbols::SymbolDeclKind;
@@ -19,7 +14,6 @@ use deno_graph::ModuleError;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleSpecifier;
 use indexmap::IndexMap;
-use indexmap::IndexSet;
 
 use crate::helpers::is_remote_specifier;
 
@@ -32,81 +26,63 @@ pub enum SymbolOrRemoteDep {
   },
 }
 
-#[derive(Debug)]
-pub struct ExportAnalysis {
-  exports_to_dep: IndexMap<String, SymbolOrRemoteDep>,
-}
-
-impl ExportAnalysis {
-  pub fn build(root_symbol: &RootSymbol, graph: &ModuleGraph) -> Self {
-    fn fill_exports_to_dep(
-      root_symbol: &RootSymbol,
-      exports_to_dep: &mut IndexMap<String, SymbolOrRemoteDep>,
-      export_name: String,
-      export_or_re_export_all_path: ResolvedExportOrReExportAllPath,
-    ) {
-      match export_or_re_export_all_path {
-        ResolvedExportOrReExportAllPath::Export(export) => {
-          if let Some(dep) = resolve_export_to_definition(root_symbol, &export)
-          {
-            exports_to_dep.insert(export_name, dep);
-          } else {
-            todo!("Export: {:#?}", export);
-          }
+pub fn analyze_exports(
+  root_symbol: &RootSymbol,
+  graph: &ModuleGraph,
+) -> IndexMap<String, SymbolOrRemoteDep> {
+  fn fill_exports_to_dep(
+    root_symbol: &RootSymbol,
+    exports_to_dep: &mut IndexMap<String, SymbolOrRemoteDep>,
+    export_name: String,
+    export_or_re_export_all_path: ResolvedExportOrReExportAllPath,
+  ) {
+    match export_or_re_export_all_path {
+      ResolvedExportOrReExportAllPath::Export(export) => {
+        if let Some(dep) = resolve_export_to_definition(root_symbol, &export) {
+          exports_to_dep.insert(export_name, dep);
+        } else {
+          todo!("Export: {:#?}", export);
         }
-        ResolvedExportOrReExportAllPath::ReExportAllPath(path) => {
-          if is_remote_specifier(path.resolved_module().specifier()) {
-            exports_to_dep.insert(
-              export_name,
-              SymbolOrRemoteDep::RemoteDepName {
-                referrer: path.referrer_module.module_id(),
-                specifier: path.specifier.to_string(),
-              },
-            );
-          } else {
-            fill_exports_to_dep(
-              root_symbol,
-              exports_to_dep,
-              export_name,
-              *path.next,
-            );
-          }
+      }
+      ResolvedExportOrReExportAllPath::ReExportAllPath(path) => {
+        if is_remote_specifier(path.resolved_module().specifier()) {
+          exports_to_dep.insert(
+            export_name,
+            SymbolOrRemoteDep::RemoteDepName {
+              referrer: path.referrer_module.module_id(),
+              specifier: path.specifier.to_string(),
+            },
+          );
+        } else {
+          fill_exports_to_dep(
+            root_symbol,
+            exports_to_dep,
+            export_name,
+            *path.next,
+          );
         }
       }
     }
-
-    assert_eq!(graph.roots.len(), 1);
-    let mut exports_to_dep = IndexMap::new();
-    let root = &graph.roots[0];
-    let module_symbol = root_symbol.get_module_from_specifier(root).unwrap();
-    let exports = module_symbol.exports(root_symbol);
-    for (export_name, export_or_re_export_all_path) in exports.resolved {
-      eprintln!("EXPORT NAME: {}", export_name);
-      fill_exports_to_dep(
-        root_symbol,
-        &mut exports_to_dep,
-        export_name,
-        export_or_re_export_all_path,
-      );
-    }
-
-    // todo: surface a diagnostic for this. It could be something like an npm module
-    debug_assert!(exports.unresolved_specifiers.is_empty());
-
-    Self { exports_to_dep }
   }
 
-  pub fn export_symbols(
-    &self,
-  ) -> impl Iterator<Item = (&str, UniqueSymbolId)> + '_ {
-    self
-      .exports_to_dep
-      .iter()
-      .filter_map(|(name, dep)| match dep {
-        SymbolOrRemoteDep::Symbol(id) => Some((name.as_str(), *id)),
-        SymbolOrRemoteDep::RemoteDepName { .. } => None,
-      })
+  assert_eq!(graph.roots.len(), 1);
+  let mut exports_to_dep = IndexMap::new();
+  let root = &graph.roots[0];
+  let module_symbol = root_symbol.get_module_from_specifier(root).unwrap();
+  let exports = module_symbol.exports(root_symbol);
+  for (export_name, export_or_re_export_all_path) in exports.resolved {
+    fill_exports_to_dep(
+      root_symbol,
+      &mut exports_to_dep,
+      export_name,
+      export_or_re_export_all_path,
+    );
   }
+
+  // todo: surface a diagnostic for this. It could be something like an npm module
+  debug_assert!(exports.unresolved_specifiers.is_empty());
+
+  exports_to_dep
 }
 
 fn resolve_export_to_definition(

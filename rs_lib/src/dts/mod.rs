@@ -43,7 +43,7 @@ use crate::helpers::SpanAdjuster;
 use crate::Diagnostic;
 use crate::Reporter;
 
-use self::analyzer::ExportAnalysis;
+use self::analyzer::analyze_exports;
 use self::analyzer::SymbolOrRemoteDep;
 
 mod analyzer;
@@ -88,10 +88,14 @@ pub fn pack_dts(
   // - For every declaration, try to have it at the top level.
   // - If encountering a module or namespace, then create an appropriate typescript namespace that just re-exports the top level declarations.
 
-  let export_analysis = ExportAnalysis::build(&root_symbol, graph);
-  let pending_symbols = export_analysis
-    .export_symbols()
-    .map(|(export_name, id)| (Some(export_name.to_string()), id))
+  let analyzed_exports = analyze_exports(&root_symbol, graph);
+  let pending_symbols = analyzed_exports
+    .iter()
+    .filter_map(|(export_name, d)| match d {
+      SymbolOrRemoteDep::Symbol(dep) => Some((export_name, dep)),
+      SymbolOrRemoteDep::RemoteDepName { .. } => None,
+    })
+    .map(|(export_name, id)| (Some(export_name.to_string()), *id))
     .collect::<VecDeque<_>>();
   let analyzed_symbols = pending_symbols
     .iter()
@@ -103,7 +107,6 @@ pub fn pack_dts(
     graph,
     root_symbol: &root_symbol,
     reporter,
-    export_analysis,
     output: OutputContainer {
       source_map,
       global_comments,
@@ -390,7 +393,6 @@ struct DtsBundler<'a, TReporter: Reporter> {
   root_symbol: &'a RootSymbol<'a>,
   graph: &'a ModuleGraph,
   reporter: &'a TReporter,
-  export_analysis: ExportAnalysis,
   output: OutputContainer,
   pending_symbols: VecDeque<(Option<String>, UniqueSymbolId)>,
   analyzed_symbols: HashSet<UniqueSymbolId>,
