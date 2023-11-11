@@ -1,0 +1,50 @@
+# mod.ts
+/** Comment */
+class MyClassInternal {
+  prop: string;
+  #other: string;
+}
+
+/** Comment2 */
+class OtherClass {
+}
+
+/** Comment3 */
+interface MyInterface {
+  prop: string;
+}
+
+/** Comment4 */
+type MyTypeAlias = string;
+
+/** Comment5 */
+var MyVar: string = "";
+
+/** Comment6 */
+enum MyEnum {
+  member = 5,
+}
+
+/** Comment7 */
+function MyFunction() {
+}
+
+export { MyClassInternal as MyClass, OtherClass, MyInterface as MyInterface, MyTypeAlias, MyVar, MyEnum, MyFunction };
+
+# output.d.ts
+/** Comment */ class MyClassInternal {
+  #private;
+  prop: string;
+}
+/** Comment2 */ export class OtherClass {
+}
+/** Comment3 */ export interface MyInterface {
+  prop: string;
+}
+/** Comment4 */ export type MyTypeAlias = string;
+/** Comment5 */ export var MyVar: string;
+/** Comment6 */ export enum MyEnum {
+  member = 5
+}
+/** Comment7 */ export function MyFunction(): void;
+export { MyClassInternal as MyClass };

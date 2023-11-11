@@ -116,7 +116,6 @@ fn resolve_export_to_definition(
   let paths = root_symbol.find_definition_paths(export.module, export.symbol());
   let mut pending_paths = paths.into_iter().collect::<VecDeque<_>>();
   while let Some(path) = pending_paths.pop_front() {
-    eprintln!("PATH: {:#?}", path);
     debug_assert!(!is_remote_specifier(path.module().specifier()));
     match path {
       DefinitionPath::Path {
