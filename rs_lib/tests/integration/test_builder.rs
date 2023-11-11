@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use anyhow::Result;
-use rs_lib::rs_pack;
+use rs_lib::lib_pack;
 use rs_lib::Diagnostic;
 use rs_lib::PackOptions;
 use rs_lib::PackOutput;
@@ -60,7 +60,7 @@ impl TestBuilder {
 
   pub async fn pack(&self) -> Result<PackResult> {
     let reporter = TestReporter::default();
-    let output = rs_pack(
+    let output = lib_pack(
       &PackOptions {
         entry_points: vec![self.entry_point.clone()],
         import_map: None,

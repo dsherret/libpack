@@ -147,7 +147,7 @@ impl ModuleData {
 
 struct Context<'a> {
   graph: &'a ModuleGraph,
-  parser: &'a CapturingModuleParser<'a>,
+  parser: CapturingModuleParser<'a>,
   module_data: ModuleDataCollection,
 }
 
@@ -159,7 +159,7 @@ pub struct PackOptions {
 
 pub fn pack(
   graph: &ModuleGraph,
-  parser: &CapturingModuleParser,
+  parser: CapturingModuleParser,
   options: PackOptions,
 ) -> Result<String, anyhow::Error> {
   // TODO

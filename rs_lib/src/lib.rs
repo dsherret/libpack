@@ -96,7 +96,7 @@ pub async fn pack(
   let options: PackOptions = serde_wasm_bindgen::from_value(options).unwrap();
   let mut loader = JsLoader::default();
   let reporter = JsReporter(on_diagnostic);
-  match rs_pack(&options, &mut loader, &reporter).await {
+  match lib_pack(&options, &mut loader, &reporter).await {
     Ok(output) => Ok(serde_wasm_bindgen::to_value(&output).unwrap()),
     Err(err) => Err(format!("{:#}", err))?,
   }
@@ -146,7 +146,7 @@ pub struct PackOutput {
   pub has_default_export: bool,
 }
 
-pub async fn rs_pack(
+pub async fn lib_pack(
   options: &PackOptions,
   loader: &mut dyn Loader,
   reporter: &impl Reporter,
@@ -186,12 +186,12 @@ pub async fn rs_pack(
   let parser = capturing_analyzer.as_capturing_parser();
   let js = pack_js::pack(
     &graph,
-    &parser,
+    parser,
     pack_js::PackOptions {
       include_remote: false,
     },
   )?;
-  let dts = dts::pack_dts(&graph, &parser, reporter)?;
+  let dts = dts::pack_dts(&graph, parser, reporter)?;
 
   Ok(PackOutput {
     js,

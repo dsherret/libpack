@@ -139,12 +139,15 @@ pub fn is_remote_specifier(specifier: &ModuleSpecifier) -> bool {
   matches!(specifier.scheme(), "https" | "http")
 }
 
-pub fn adjust_spans(start_pos: BytePos, module: &mut Module) {
+pub fn adjust_spans(
+  start_pos: BytePos,
+  node: &mut impl VisitMutWith<SpanAdjuster>,
+) {
   let mut span_adjuster = SpanAdjuster { start_pos };
-  module.visit_mut_with(&mut span_adjuster);
+  node.visit_mut_with(&mut span_adjuster);
 }
 
-struct SpanAdjuster {
+pub struct SpanAdjuster {
   start_pos: BytePos,
 }
 
