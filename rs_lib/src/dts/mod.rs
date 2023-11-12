@@ -249,6 +249,7 @@ impl OutputContainer {
         }))
       } else {
         decl.class.span = js_doc_span;
+        decl.declare = true;
         ModuleItem::Stmt(Stmt::Decl(Decl::Class(decl)))
       };
     self.add_module_item(module, module_item);
@@ -274,6 +275,7 @@ impl OutputContainer {
         }))
       } else {
         decl.span = js_doc_span;
+        decl.declare = true;
         ModuleItem::Stmt(Stmt::Decl(Decl::TsEnum(Box::new(decl))))
       };
     self.add_module_item(module, module_item);
@@ -299,6 +301,7 @@ impl OutputContainer {
         }))
       } else {
         decl.function.span = js_doc_span;
+        decl.declare = true;
         ModuleItem::Stmt(Stmt::Decl(Decl::Fn(decl)))
       };
     self.add_module_item(module, module_item);
@@ -383,6 +386,7 @@ impl OutputContainer {
         }))
       } else {
         decl.span = js_doc_span;
+        decl.declare = true;
         ModuleItem::Stmt(Stmt::Decl(Decl::Var(Box::new(decl))))
       };
     self.add_module_item(module, module_item);
@@ -428,6 +432,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
           if decl.has_overloads() {
             continue; // ignore implementation signatures
           }
+          eprintln!("DECL: {:#?}", decl.kind);
           match decl.maybe_node() {
             Some(node) => match node {
               deno_graph::symbols::SymbolNodeRef::Module(_) => todo!(),
@@ -504,7 +509,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
                   let decl = ClassDecl {
                     ident: Ident::new(top_level_name.clone().into(), n.span()),
                     class: n.class.clone(),
-                    declare: false,
+                    declare: true,
                   };
                   self.output.add_class_decl(
                     decl,
@@ -519,7 +524,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
                   let decl = FnDecl {
                     ident: Ident::new(top_level_name.clone().into(), n.span()),
                     function: n.function.clone(),
-                    declare: false,
+                    declare: true,
                   };
                   self.output.add_function(
                     decl,
@@ -548,7 +553,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
                 let decl = VarDecl {
                   span: default_expr.span,
                   kind: VarDeclKind::Const,
-                  declare: false,
+                  declare: true,
                   decls: Vec::from([VarDeclarator {
                     span: DUMMY_SP,
                     name: Pat::Ident(BindingIdent {
@@ -738,7 +743,8 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
   }
 
   fn visit_mut_binding_ident(&mut self, n: &mut BindingIdent) {
-    visit_mut_binding_ident(self, n)
+    // do not visit n.ident
+    n.type_ann.visit_mut_with(self)
   }
 
   fn visit_mut_block_stmt(&mut self, n: &mut BlockStmt) {
@@ -1019,9 +1025,8 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
           .text_info()
           .line_and_column_display(n.start());
         self.reporter.diagnostic(Diagnostic {
-          message:
-            "Missing explicit return type for function with return statement."
-              .to_string(),
+          message: "Missing return type for function with return statement."
+            .to_string(),
           specifier: self.module_info.specifier().clone(),
           line_and_column: Some(line_and_column.into()),
         });
@@ -1111,8 +1116,6 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
           }
           SymbolOrRemoteDep::RemoteDepName { .. } => todo!(),
         }
-      } else {
-        todo!();
       }
     }
 

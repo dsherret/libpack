@@ -65,16 +65,16 @@ export function MyFunction() {
   member1 = 1
 }
 /** Comment11 */ export function MyFunction(): void;
-/** Comment2 */ class MyClass1 {
+/** Comment2 */ declare class MyClass1 {
   prop2: string;
 }
 /** Comment4 */ interface MyInterface1 {
   prop2: string;
 }
 /** Comment6 */ type MyTypeAlias1 = string;
-/** Comment8 */ var MyVar1: string;
-/** Comment10 */ enum MyEnum1 {
+/** Comment8 */ declare var MyVar1: string;
+/** Comment10 */ declare enum MyEnum1 {
   member2 = 2
 }
-/** Comment12 */ function MyFunction1(): void;
+/** Comment12 */ declare function MyFunction1(): void;
 export { MyClass1 as MyOtherClass, MyInterface1 as MyOtherInterface, MyTypeAlias1 as MyOtherTypeAlias, MyVar1 as MyOtherVar, MyEnum1 as MyOtherEnum, MyFunction1 as MyOtherFunction };

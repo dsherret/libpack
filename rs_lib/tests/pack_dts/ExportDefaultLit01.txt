@@ -2,5 +2,5 @@
 export default 1;
 
 # output.d.ts
-const NoName: number;
+declare const NoName: number;
 export { NoName as default };

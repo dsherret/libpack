@@ -1,0 +1,21 @@
+# a.ts
+const a: number;
+export default a;
+
+# b.ts
+const b: number;
+export default b;
+
+# mod.ts
+export { default as a } from "./a.ts";
+import b, { default as c } from "./b.ts";
+export { b, c };
+
+const $: number;
+export default $;
+
+# output.d.ts
+export const a: number;
+export const b: number;
+declare const $: number;
+export { b as c, $ as default };

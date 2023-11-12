@@ -32,7 +32,7 @@ function MyFunction() {
 export { MyClassInternal as MyClass, OtherClass, MyInterface as MyInterface, MyTypeAlias, MyVar, MyEnum, MyFunction };
 
 # output.d.ts
-/** Comment */ class MyClassInternal {
+/** Comment */ declare class MyClassInternal {
   #private;
   prop: string;
 }

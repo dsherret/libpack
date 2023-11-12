@@ -133,8 +133,8 @@ pub fn resolve_paths_to_remote_path(
       DefinitionPath::Definition(d) => {
         return Some(SymbolOrRemoteDep::Symbol(d.symbol.unique_id()));
       }
-      DefinitionPath::Unresolved(d) => {
-        return Some(SymbolOrRemoteDep::Symbol(d.symbol.unique_id()));
+      DefinitionPath::Unresolved(_) => {
+        // ignore, could be a global
       }
     }
   }

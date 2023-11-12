@@ -7,5 +7,5 @@ export { other, other as default };
 export default "test";
 
 # output.d.ts
-const NoName: string;
+declare const NoName: string;
 export { NoName as other, NoName as default };

@@ -22,29 +22,7 @@ export const test10: typeof test1;
 export { test1, test3, test10 } from "./c.ts";
 
 # output.d.ts
-declare module pack3 {
-  const test1: string;
-  const test5: number;
-  export { test1 };
-  export { test5 };
-}
-declare module pack2 {
-  import test1 = pack3.test1;
-  import test5 = pack3.test5;
-  export { test1, test5 };
-  const __packTsUnder5_2_Workaround__: unknown;
-}
-declare module pack1 {
-  import test1 = pack2.test1;
-  export const test10: typeof test1;
-  import __export1 = pack2.test1;
-  export { __export1 as test1 };
-  import __export2 = pack2.test5;
-  export { __export2 as test3 };
-}
-import __export1 = pack1.test1;
-export { __export1 as test1 };
-import __export2 = pack1.test3;
-export { __export2 as test3 };
-import __export3 = pack1.test10;
-export { __export3 as test10 };
+export const test1: string;
+declare const test5: number;
+export const test10: typeof test1;
+export { test5 as test3 };
