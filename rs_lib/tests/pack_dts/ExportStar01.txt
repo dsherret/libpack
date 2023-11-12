@@ -1,0 +1,23 @@
+# a.ts
+const test1: string = "";
+const test2: number = 3, test3: number = 3;
+const test4: number;
+const test5: number;
+
+export { test1, test2, test3 };
+export { test4, test5 };
+
+# b.ts
+export class Test {}
+
+# c.ts
+export * from "./a.ts";
+export { Test } from "./b.ts";
+
+# mod.ts
+export { Test, test1 } from "./c.ts";
+
+# output.d.ts
+export class Test {
+}
+export const test1: string;

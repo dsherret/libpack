@@ -71,6 +71,7 @@ pub fn analyze_exports(
   let module_symbol = root_symbol.get_module_from_specifier(root).unwrap();
   let exports = module_symbol.exports(root_symbol);
   for (export_name, export_or_re_export_all_path) in exports.resolved {
+    eprintln!("EXPORT: {}", export_name);
     fill_exports_to_dep(
       root_symbol,
       &mut exports_to_dep,

@@ -432,7 +432,6 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
           if decl.has_overloads() {
             continue; // ignore implementation signatures
           }
-          eprintln!("DECL: {:#?}", decl.kind);
           match decl.maybe_node() {
             Some(node) => match node {
               deno_graph::symbols::SymbolNodeRef::Module(_) => todo!(),
