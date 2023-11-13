@@ -86,7 +86,7 @@ interface ExtrasObject {
 # diagnostics
 [
   {
-    "message": "Missing return type for function with return statement.",
+    "kind": "missingReturnType",
     "specifier": "file:///mod.ts",
     "lineAndColumn": {
       "lineNumber": 10,
@@ -94,7 +94,7 @@ interface ExtrasObject {
     }
   },
   {
-    "message": "Missing return type for function with return statement.",
+    "kind": "missingReturnType",
     "specifier": "file:///mod.ts",
     "lineAndColumn": {
       "lineNumber": 38,
@@ -102,7 +102,7 @@ interface ExtrasObject {
     }
   },
   {
-    "message": "Missing return type for function with return statement.",
+    "kind": "missingReturnType",
     "specifier": "file:///mod.ts",
     "lineAndColumn": {
       "lineNumber": 41,

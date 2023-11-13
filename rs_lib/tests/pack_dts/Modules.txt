@@ -12,6 +12,15 @@ export module Test.Test {
 
 # output.d.ts
 export type Test<T extends string> = T extends string ? "test" : 5;
-export module Test.Test {
-  /** Testing */ export function test(): void;
-}
+
+# diagnostics
+[
+  {
+    "kind": "unsupportedTsNamespace",
+    "specifier": "file:///mod.ts",
+    "lineAndColumn": {
+      "lineNumber": 5,
+      "columnNumber": 8
+    }
+  }
+]

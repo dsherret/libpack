@@ -13,5 +13,5 @@ export class SomeClassName {
 export class MyClass {
   prop: SomeClassName;
 }
-class SomeClassName {
+declare class SomeClassName {
 }
