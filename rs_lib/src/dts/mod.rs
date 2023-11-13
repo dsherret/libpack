@@ -46,6 +46,7 @@ use crate::helpers::print_program;
 use crate::helpers::ts_keyword_type;
 use crate::helpers::SpanAdjuster;
 use crate::Diagnostic;
+use crate::DiagnosticKind;
 use crate::Reporter;
 
 use self::analyzer::analyze_exports;
@@ -408,9 +409,7 @@ impl OutputContainer {
     maybe_export_name: &Option<String>,
     module: ModuleInfoRef<'_>,
   ) {
-    if decl.decls.len() > 1 {
-      todo!();
-    }
+    assert_eq!(decl.decls.len(), 1);
     if !decl.decls[0].name.is_ident() {
       todo!();
     }
@@ -576,7 +575,18 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
                         module,
                       );
                     }
-                    ExportDeclRef::TsModule(_) => todo!(),
+                    ExportDeclRef::TsModule(ts_module) => {
+                      self.reporter.diagnostic(Diagnostic {
+                        kind: DiagnosticKind::UnsupportedTsNamespace,
+                        specifier: module.specifier().clone(),
+                        line_and_column: Some(
+                          module
+                            .text_info()
+                            .line_and_column_display(ts_module.start())
+                            .into(),
+                        ),
+                      });
+                    }
                     ExportDeclRef::TsTypeAlias(decl) => {
                       self.output.add_type_alias(
                         decl.clone(),
@@ -715,7 +725,13 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
                       module,
                     );
                   }
-                  SymbolNodeRef::Var(decl, _, _) => {
+                  SymbolNodeRef::Var(decl, declarator, _) => {
+                    let decl = VarDecl {
+                      span: decl.span.clone(),
+                      kind: decl.kind,
+                      declare: decl.declare,
+                      decls: vec![declarator.clone()],
+                    };
                     self.output.add_var_decl(
                       decl.clone(),
                       &mut transformer,
@@ -1243,8 +1259,7 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
           .text_info()
           .line_and_column_display(n.start());
         self.reporter.diagnostic(Diagnostic {
-          message: "Missing return type for function with return statement."
-            .to_string(),
+          kind: DiagnosticKind::MissingReturnType,
           specifier: self.module_info.specifier().clone(),
           line_and_column: Some(line_and_column.into()),
         });

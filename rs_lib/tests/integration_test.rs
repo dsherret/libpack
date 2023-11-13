@@ -168,7 +168,7 @@ fn parse_spec(text: String) -> Spec {
     files.iter().position(|f| f.specifier == "diagnostics")
   {
     let diagnostic_file = files.remove(index);
-    serde_json::from_str(&diagnostic_file.text).unwrap()
+    serde_json::from_str(&diagnostic_file.text).unwrap_or_default()
   } else {
     Vec::new()
   };

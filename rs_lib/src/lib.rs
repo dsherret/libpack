@@ -120,8 +120,28 @@ impl From<deno_ast::LineAndColumnDisplay> for LineAndColumnDisplay {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum DiagnosticKind {
+  MissingReturnType,
+  UnsupportedTsNamespace,
+}
+
+impl std::fmt::Display for DiagnosticKind {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::MissingReturnType => {
+        write!(f, "Missing return type for function with return statement.")
+      }
+      Self::UnsupportedTsNamespace => {
+        write!(f, "Using a TypeScript namespace adds some complexity and so it's not supported at the moment.")
+      }
+    }
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
-  pub message: String,
+  pub kind: DiagnosticKind,
   pub specifier: ModuleSpecifier,
   pub line_and_column: Option<LineAndColumnDisplay>,
 }

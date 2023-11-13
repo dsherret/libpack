@@ -125,7 +125,7 @@ declare class Other {
 # diagnostics
 [
   {
-    "message": "Missing return type for function with return statement.",
+    "kind": "MissingReturnType",
     "specifier": "file:///mod.ts",
     "lineAndColumn": {
       "lineNumber": 31,
