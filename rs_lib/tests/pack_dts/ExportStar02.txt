@@ -7,27 +7,38 @@ export { fs };
 export * from "./a.ts";
 export * from "./b.ts";
 
+import { C } from "./b.ts";
+export type E = C;
+type F = C;
+export type { F as G };
+
 # a.ts
 export class A {}
 
 # b.ts
 export class B {}
+export interface C {}
+export function d() {}
 
 # output.d.ts
-declare module pack2 {
-  export class A {
+declare module packModule1 {
+  type E = packModule3.C;
+  type F = packModule3.C;
+  export import A = packModule2.A;
+  export import B = packModule3.B;
+  export import C = packModule3.C;
+  export import d = packModule3.d;
+  export { E, F as G };
+}
+declare module packModule2 {
+  class A {
   }
 }
-declare module pack3 {
-  export class B {
+declare module packModule3 {
+  class B {
   }
+  interface C {
+  }
+  function d(): void;
 }
-declare module pack1 {
-  import __export1 = pack2.A;
-  export { __export1 as A };
-  import __export2 = pack3.B;
-  export { __export2 as B };
-  const __packTsUnder5_2_Workaround__: unknown;
-}
-import fs = pack1;
-export { fs };
+export { packModule1 as fs };

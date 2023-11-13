@@ -132,7 +132,24 @@ pub fn resolve_paths_to_remote_path(
         }
       }
       DefinitionPath::Definition(d) => {
-        return Some(SymbolOrRemoteDep::Symbol(d.symbol.unique_id()));
+        if let Some(file_dep) = d.symbol.file_dep() {
+          assert_eq!(file_dep.name.maybe_name(), None);
+          // resolve the to the module's symbol id
+          let maybe_specifier = root_symbol.resolve_types_dependency(
+            &file_dep.specifier,
+            d.module.specifier(),
+          );
+          let maybe_dep_module = maybe_specifier.and_then(|specifier| {
+            root_symbol.get_module_from_specifier(&specifier)
+          });
+          if let Some(module) = maybe_dep_module {
+            return Some(SymbolOrRemoteDep::Symbol(
+              module.module_symbol().unique_id(),
+            ));
+          }
+        } else {
+          return Some(SymbolOrRemoteDep::Symbol(d.symbol.unique_id()));
+        }
       }
       DefinitionPath::Unresolved(_) => {
         // ignore, could be a global

@@ -9,9 +9,11 @@ use deno_ast::swc::common::comments::CommentKind;
 use deno_ast::swc::common::comments::SingleThreadedComments;
 use deno_ast::swc::common::BytePos;
 use deno_ast::swc::common::FileName;
+use deno_ast::swc::common::Mark;
 use deno_ast::swc::common::SourceMap;
 use deno_ast::swc::common::Span;
 use deno_ast::swc::common::Spanned;
+use deno_ast::swc::common::SyntaxContext;
 use deno_ast::swc::common::DUMMY_SP;
 use deno_ast::swc::visit::*;
 use deno_ast::ModuleSpecifier;
@@ -20,12 +22,15 @@ use deno_ast::SourcePos;
 use deno_ast::SourceRange;
 use deno_ast::SourceRangedForSpanned;
 use deno_graph::symbols::EsmModuleInfo;
+use deno_graph::symbols::ExportDeclRef;
 use deno_graph::symbols::ModuleId;
 use deno_graph::symbols::ModuleInfoRef;
 use deno_graph::symbols::ResolvedSymbolDepEntry;
 use deno_graph::symbols::RootSymbol;
 use deno_graph::symbols::Symbol;
+use deno_graph::symbols::SymbolDeclKind;
 use deno_graph::symbols::SymbolNodeDep;
+use deno_graph::symbols::SymbolNodeRef;
 use deno_graph::symbols::UniqueSymbolId;
 use deno_graph::CapturingModuleParser;
 use deno_graph::ModuleGraph;
@@ -111,49 +116,70 @@ pub fn pack_dts(
       source_map,
       global_comments,
       modules: Default::default(),
-      final_module: Module {
-        span: DUMMY_SP,
-        body: vec![],
-        shebang: None,
-      },
+      module_emit_infos: Default::default(),
     },
     analyzed_symbols,
     emitted_symbols: Default::default(),
     pending_symbols,
-    top_level_symbols: Default::default(),
+    top_level_symbols: TopLevelSymbols {
+      root_symbol: &root_symbol,
+      names: Default::default(),
+      name_collision_count: Default::default(),
+      symbol_id_to_name: Default::default(),
+      public_symbols: Default::default(),
+    },
     queued_named_exports: Default::default(),
   };
-  bundler.bundle();
+  let final_module = bundler.bundle();
 
   print_program(
-    &bundler.output.final_module,
+    &final_module,
     &bundler.output.source_map,
     &bundler.output.global_comments,
   )
 }
 
-#[derive(Debug, Default)]
-struct TopLevelSymbols {
-  name_to_id: IndexMap<String, UniqueSymbolId>,
+struct TopLevelSymbols<'a> {
+  root_symbol: &'a RootSymbol<'a>,
+  names: HashSet<String>,
   name_collision_count: IndexMap<String, usize>,
-  id_to_name: IndexMap<UniqueSymbolId, String>,
+  symbol_id_to_name: IndexMap<UniqueSymbolId, String>,
   public_symbols: IndexSet<UniqueSymbolId>,
 }
 
-impl TopLevelSymbols {
+impl<'a> TopLevelSymbols<'a> {
   pub fn ensure_top_level_name(&mut self, symbol: &Symbol) -> String {
     let id = symbol.unique_id();
-    if let Some(name) = self.id_to_name.get(&id) {
+    if let Some(name) = self.symbol_id_to_name.get(&id) {
       return name.to_string();
     }
-    let name = symbol.maybe_name().unwrap_or_else(|| {
-      if symbol.decls().iter().all(|d| d.is_function()) {
-        Cow::Borrowed("noName")
-      } else {
-        Cow::Borrowed("NoName")
+    let name = match &symbol.decls()[0].kind {
+      SymbolDeclKind::Target(_)
+      | SymbolDeclKind::QualifiedTarget(_, _)
+      | SymbolDeclKind::FileRef(_) => {
+        todo!("{:#?}", symbol.decls()[0].kind) // this should never happen
       }
-    });
-    let name = if self.name_to_id.contains_key(name.as_ref()) {
+      SymbolDeclKind::Definition(d) => {
+        if let Some(SymbolNodeRef::Module(_)) = d.maybe_ref() {
+          Cow::Owned(format!("packModule{}", symbol.module_id()))
+        } else {
+          d.maybe_name().unwrap_or_else(|| {
+            if symbol.decls().iter().all(|d| d.is_function()) {
+              Cow::Borrowed("noName")
+            } else {
+              Cow::Borrowed("NoName")
+            }
+          })
+        }
+      }
+    };
+    let name = self.get_new_unique_name(&name);
+    self.symbol_id_to_name.insert(id, name.clone());
+    name
+  }
+
+  fn get_new_unique_name(&mut self, name: &str) -> String {
+    let name = if self.names.contains(name) {
       loop {
         let collision_count = *self
           .name_collision_count
@@ -161,24 +187,36 @@ impl TopLevelSymbols {
           .and_modify(|count| *count += 1)
           .or_insert(1);
         let new_name = format!("{}{}", name, collision_count);
-        if !self.name_to_id.contains_key(&new_name) {
+        if !self.names.contains(&new_name) {
           break new_name;
         }
       }
     } else {
       name.to_string()
     };
-    self.name_to_id.insert(name.clone(), id);
-    self.id_to_name.insert(id, name.clone());
+    self.names.insert(name.clone());
     name
   }
+}
+
+#[derive(Debug)]
+struct NamespaceEmitInfo {
+  name: String,
+  exports: Vec<(String, UniqueSymbolId)>,
+}
+
+#[derive(Default)]
+struct ModuleEmitInfo {
+  namespace_info: Option<NamespaceEmitInfo>,
+  items: Vec<ModuleItem>,
+  ident_mapping: IndexMap<Id, UniqueSymbolId>,
 }
 
 struct OutputContainer {
   source_map: Rc<SourceMap>,
   global_comments: SingleThreadedComments,
   modules: IndexMap<ModuleId, BytePos>,
-  final_module: Module,
+  module_emit_infos: ModuleEmitInfos,
 }
 
 impl OutputContainer {
@@ -226,13 +264,17 @@ impl OutputContainer {
     mut module_item: ModuleItem,
   ) {
     self.adjust_spans(module, &mut module_item);
-    self.final_module.body.push(module_item);
+    self
+      .module_emit_infos
+      .get_or_create(module.module_id())
+      .items
+      .push(module_item);
   }
 
   fn add_class_decl<TReporter: Reporter>(
     &mut self,
     mut decl: ClassDecl,
-    transformer: &mut DtsTransformer<'_, TReporter>,
+    transformer: &mut DtsTransformer<'_, '_, TReporter>,
     js_doc_span: Span,
     top_level_name: &String,
     maybe_export_name: &Option<String>,
@@ -258,7 +300,7 @@ impl OutputContainer {
   fn add_enum<TReporter: Reporter>(
     &mut self,
     mut decl: TsEnumDecl,
-    transformer: &mut DtsTransformer<'_, TReporter>,
+    transformer: &mut DtsTransformer<'_, '_, TReporter>,
     js_doc_span: Span,
     top_level_name: &String,
     maybe_export_name: &Option<String>,
@@ -284,7 +326,7 @@ impl OutputContainer {
   fn add_function<TReporter: Reporter>(
     &mut self,
     mut decl: FnDecl,
-    transformer: &mut DtsTransformer<'_, TReporter>,
+    transformer: &mut DtsTransformer<'_, '_, TReporter>,
     js_doc_span: Span,
     top_level_name: &String,
     maybe_export_name: &Option<String>,
@@ -310,7 +352,7 @@ impl OutputContainer {
   fn add_interface<TReporter: Reporter>(
     &mut self,
     mut decl: TsInterfaceDecl,
-    transformer: &mut DtsTransformer<'_, TReporter>,
+    transformer: &mut DtsTransformer<'_, '_, TReporter>,
     js_doc_span: Span,
     top_level_name: &String,
     maybe_export_name: &Option<String>,
@@ -335,7 +377,7 @@ impl OutputContainer {
   fn add_type_alias<TReporter: Reporter>(
     &mut self,
     mut decl: TsTypeAliasDecl,
-    transformer: &mut DtsTransformer<'_, TReporter>,
+    transformer: &mut DtsTransformer<'_, '_, TReporter>,
     js_doc_span: Span,
     top_level_name: &String,
     maybe_export_name: &Option<String>,
@@ -360,7 +402,7 @@ impl OutputContainer {
   fn add_var_decl<TReporter: Reporter>(
     &mut self,
     mut decl: VarDecl,
-    transformer: &mut DtsTransformer<'_, TReporter>,
+    transformer: &mut DtsTransformer<'_, '_, TReporter>,
     js_doc_span: Span,
     top_level_name: &String,
     maybe_export_name: &Option<String>,
@@ -401,12 +443,13 @@ struct DtsBundler<'a, TReporter: Reporter> {
   pending_symbols: VecDeque<(Option<String>, UniqueSymbolId)>,
   analyzed_symbols: HashSet<UniqueSymbolId>,
   emitted_symbols: HashSet<UniqueSymbolId>,
-  top_level_symbols: TopLevelSymbols,
+  top_level_symbols: TopLevelSymbols<'a>,
   queued_named_exports: Vec<(String, String)>,
 }
 
 impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
-  pub fn bundle(&mut self) {
+  pub fn bundle(&mut self) -> Module {
+    let mut pending_module_ids_to_make_namespace = IndexSet::new();
     while let Some((maybe_export_name, symbol_id)) =
       self.pending_symbols.pop_front()
     {
@@ -426,256 +469,305 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
           top_level_symbols: &mut self.top_level_symbols,
           graph: self.graph,
           module_info: module.esm().unwrap(), // todo: handle json
-          found_symbols: Default::default(),
+          ident_mapping: Default::default(),
         };
         for decl in symbol.decls() {
           if decl.has_overloads() {
             continue; // ignore implementation signatures
           }
-          match decl.maybe_node() {
-            Some(node) => match node {
-              deno_graph::symbols::SymbolNodeRef::Module(_) => todo!(),
-              deno_graph::symbols::SymbolNodeRef::ExportDecl(
-                export_decl,
-                n,
-              ) => match n {
-                deno_graph::symbols::ExportDeclRef::Class(decl) => {
-                  self.output.add_class_decl(
-                    decl.clone(),
-                    &mut transformer,
-                    export_decl.span(),
-                    &top_level_name,
-                    &maybe_export_name,
-                    module,
-                  );
-                }
-                deno_graph::symbols::ExportDeclRef::Fn(decl) => {
-                  self.output.add_function(
-                    decl.clone(),
-                    &mut transformer,
-                    export_decl.span(),
-                    &top_level_name,
-                    &maybe_export_name,
-                    module,
-                  );
-                }
-                deno_graph::symbols::ExportDeclRef::Var(decl, _, _) => {
-                  self.output.add_var_decl(
-                    decl.clone(),
-                    &mut transformer,
-                    export_decl.span(),
-                    &top_level_name,
-                    &maybe_export_name,
-                    module,
-                  );
-                }
-                deno_graph::symbols::ExportDeclRef::TsEnum(decl) => {
-                  self.output.add_enum(
-                    decl.clone(),
-                    &mut transformer,
-                    export_decl.span(),
-                    &top_level_name,
-                    &maybe_export_name,
-                    module,
-                  );
-                }
-                deno_graph::symbols::ExportDeclRef::TsInterface(decl) => {
-                  self.output.add_interface(
-                    decl.clone(),
-                    &mut transformer,
-                    export_decl.span(),
-                    &top_level_name,
-                    &maybe_export_name,
-                    module,
-                  );
-                }
-                deno_graph::symbols::ExportDeclRef::TsModule(_) => todo!(),
-                deno_graph::symbols::ExportDeclRef::TsTypeAlias(decl) => {
-                  self.output.add_type_alias(
-                    decl.clone(),
-                    &mut transformer,
-                    export_decl.span(),
-                    &top_level_name,
-                    &maybe_export_name,
-                    module,
-                  );
-                }
-              },
-              deno_graph::symbols::SymbolNodeRef::ExportDefaultDecl(
-                export_default_expr,
-              ) => match &export_default_expr.decl {
-                DefaultDecl::Class(n) => {
-                  let decl = ClassDecl {
-                    ident: Ident::new(top_level_name.clone().into(), n.span()),
-                    class: n.class.clone(),
-                    declare: true,
-                  };
-                  self.output.add_class_decl(
-                    decl,
-                    &mut transformer,
-                    export_default_expr.span(),
-                    &top_level_name,
-                    &maybe_export_name,
-                    module,
-                  );
-                }
-                DefaultDecl::Fn(n) => {
-                  let decl = FnDecl {
-                    ident: Ident::new(top_level_name.clone().into(), n.span()),
-                    function: n.function.clone(),
-                    declare: true,
-                  };
-                  self.output.add_function(
-                    decl,
-                    &mut transformer,
-                    export_default_expr.span(),
-                    &top_level_name,
-                    &maybe_export_name,
-                    module,
-                  );
-                }
-                DefaultDecl::TsInterfaceDecl(decl) => {
-                  self.output.add_interface(
-                    *decl.clone(),
-                    &mut transformer,
-                    export_default_expr.span(),
-                    &top_level_name,
-                    &maybe_export_name,
-                    module,
-                  );
-                }
-              },
-              deno_graph::symbols::SymbolNodeRef::ExportDefaultExprLit(
-                default_expr,
-                lit,
-              ) => {
-                let decl = VarDecl {
-                  span: default_expr.span,
-                  kind: VarDeclKind::Const,
-                  declare: true,
-                  decls: Vec::from([VarDeclarator {
-                    span: DUMMY_SP,
-                    name: Pat::Ident(BindingIdent {
-                      id: Ident::new(top_level_name.clone().into(), DUMMY_SP),
-                      type_ann: maybe_infer_type_from_lit(lit).map(|t| {
-                        Box::new(TsTypeAnn {
-                          span: DUMMY_SP,
-                          type_ann: Box::new(t),
-                        })
-                      }),
-                    }),
-                    init: None,
-                    definite: false,
-                  }]),
-                };
-                self.output.add_var_decl(
-                  decl,
-                  &mut transformer,
-                  default_expr.span(),
-                  &top_level_name,
-                  &maybe_export_name,
-                  module,
-                );
+          match &decl.kind {
+            SymbolDeclKind::Target(_) => todo!(),
+            SymbolDeclKind::QualifiedTarget(_, _) => todo!(),
+            SymbolDeclKind::FileRef(_) => unreachable!(),
+            SymbolDeclKind::Definition(d) => {
+              match d.maybe_ref_and_source() {
+                Some((node, _)) => match node {
+                  SymbolNodeRef::Module(_) => {
+                    let module_info = self
+                      .output
+                      .module_emit_infos
+                      .get_or_create(module.module_id());
+                    let namespace_info =
+                      match module_info.namespace_info.as_mut() {
+                        Some(namespace_info) => namespace_info,
+                        None => {
+                          module_info.namespace_info =
+                            Some(NamespaceEmitInfo {
+                              name: top_level_name.clone(),
+                              exports: Vec::new(),
+                            });
+                          module_info.namespace_info.as_mut().unwrap()
+                        }
+                      };
+                    if namespace_info.exports.is_empty() {
+                      let symbol_exports = module.exports(&self.root_symbol);
+                      for (name, export) in symbol_exports.resolved {
+                        let resolved_export = export.as_resolved_export();
+                        let mut definitions =
+                          self.root_symbol.go_to_definitions(
+                            resolved_export.module,
+                            resolved_export.symbol(),
+                          );
+                        if let Some(definition) = definitions.next() {
+                          let symbol_id = definition.symbol.unique_id();
+                          if self.analyzed_symbols.insert(symbol_id) {
+                            self.pending_symbols.push_back((None, symbol_id));
+                          }
+                          namespace_info
+                            .exports
+                            .push((name.clone(), symbol_id));
+                          if definition.module.module_id() != module.module_id()
+                          {
+                            pending_module_ids_to_make_namespace
+                              .insert(definition.module.module_id());
+                          }
+                        }
+                      }
+                    }
+                  }
+                  SymbolNodeRef::ExportDecl(export_decl, n) => match n {
+                    ExportDeclRef::Class(decl) => {
+                      self.output.add_class_decl(
+                        decl.clone(),
+                        &mut transformer,
+                        export_decl.span(),
+                        &top_level_name,
+                        &maybe_export_name,
+                        module,
+                      );
+                    }
+                    ExportDeclRef::Fn(decl) => {
+                      self.output.add_function(
+                        decl.clone(),
+                        &mut transformer,
+                        export_decl.span(),
+                        &top_level_name,
+                        &maybe_export_name,
+                        module,
+                      );
+                    }
+                    ExportDeclRef::Var(decl, _, _) => {
+                      self.output.add_var_decl(
+                        decl.clone(),
+                        &mut transformer,
+                        export_decl.span(),
+                        &top_level_name,
+                        &maybe_export_name,
+                        module,
+                      );
+                    }
+                    ExportDeclRef::TsEnum(decl) => {
+                      self.output.add_enum(
+                        decl.clone(),
+                        &mut transformer,
+                        export_decl.span(),
+                        &top_level_name,
+                        &maybe_export_name,
+                        module,
+                      );
+                    }
+                    ExportDeclRef::TsInterface(decl) => {
+                      self.output.add_interface(
+                        decl.clone(),
+                        &mut transformer,
+                        export_decl.span(),
+                        &top_level_name,
+                        &maybe_export_name,
+                        module,
+                      );
+                    }
+                    ExportDeclRef::TsModule(_) => todo!(),
+                    ExportDeclRef::TsTypeAlias(decl) => {
+                      self.output.add_type_alias(
+                        decl.clone(),
+                        &mut transformer,
+                        export_decl.span(),
+                        &top_level_name,
+                        &maybe_export_name,
+                        module,
+                      );
+                    }
+                  },
+                  SymbolNodeRef::ExportDefaultDecl(export_default_expr) => {
+                    match &export_default_expr.decl {
+                      DefaultDecl::Class(n) => {
+                        let decl = ClassDecl {
+                          ident: ident(top_level_name.clone()),
+                          class: n.class.clone(),
+                          declare: true,
+                        };
+                        self.output.add_class_decl(
+                          decl,
+                          &mut transformer,
+                          export_default_expr.span(),
+                          &top_level_name,
+                          &maybe_export_name,
+                          module,
+                        );
+                      }
+                      DefaultDecl::Fn(n) => {
+                        let decl = FnDecl {
+                          ident: ident(top_level_name.clone()),
+                          function: n.function.clone(),
+                          declare: true,
+                        };
+                        self.output.add_function(
+                          decl,
+                          &mut transformer,
+                          export_default_expr.span(),
+                          &top_level_name,
+                          &maybe_export_name,
+                          module,
+                        );
+                      }
+                      DefaultDecl::TsInterfaceDecl(decl) => {
+                        self.output.add_interface(
+                          *decl.clone(),
+                          &mut transformer,
+                          export_default_expr.span(),
+                          &top_level_name,
+                          &maybe_export_name,
+                          module,
+                        );
+                      }
+                    }
+                  }
+                  SymbolNodeRef::ExportDefaultExprLit(default_expr, lit) => {
+                    let decl = VarDecl {
+                      span: default_expr.span,
+                      kind: VarDeclKind::Const,
+                      declare: true,
+                      decls: Vec::from([VarDeclarator {
+                        span: DUMMY_SP,
+                        name: Pat::Ident(BindingIdent {
+                          id: ident(top_level_name.clone()),
+                          type_ann: maybe_infer_type_from_lit(lit).map(|t| {
+                            Box::new(TsTypeAnn {
+                              span: DUMMY_SP,
+                              type_ann: Box::new(t),
+                            })
+                          }),
+                        }),
+                        init: None,
+                        definite: false,
+                      }]),
+                    };
+                    self.output.add_var_decl(
+                      decl,
+                      &mut transformer,
+                      default_expr.span(),
+                      &top_level_name,
+                      &maybe_export_name,
+                      module,
+                    );
+                  }
+                  SymbolNodeRef::ClassDecl(decl) => {
+                    self.output.add_class_decl(
+                      decl.clone(),
+                      &mut transformer,
+                      decl.span(),
+                      &top_level_name,
+                      &maybe_export_name,
+                      module,
+                    );
+                  }
+                  SymbolNodeRef::FnDecl(decl) => {
+                    self.output.add_function(
+                      decl.clone(),
+                      &mut transformer,
+                      decl.span(),
+                      &top_level_name,
+                      &maybe_export_name,
+                      module,
+                    );
+                  }
+                  SymbolNodeRef::TsEnum(decl) => {
+                    self.output.add_enum(
+                      decl.clone(),
+                      &mut transformer,
+                      decl.span(),
+                      &top_level_name,
+                      &maybe_export_name,
+                      module,
+                    );
+                  }
+                  SymbolNodeRef::TsInterface(decl) => {
+                    self.output.add_interface(
+                      decl.clone(),
+                      &mut transformer,
+                      decl.span(),
+                      &top_level_name,
+                      &maybe_export_name,
+                      module,
+                    );
+                  }
+                  SymbolNodeRef::TsNamespace(_) => {
+                    // do a message about how ts namespaces aren't supported at the moment
+                    todo!()
+                  }
+                  SymbolNodeRef::TsTypeAlias(decl) => {
+                    self.output.add_type_alias(
+                      decl.clone(),
+                      &mut transformer,
+                      decl.span(),
+                      &top_level_name,
+                      &maybe_export_name,
+                      module,
+                    );
+                  }
+                  SymbolNodeRef::Var(decl, _, _) => {
+                    self.output.add_var_decl(
+                      decl.clone(),
+                      &mut transformer,
+                      decl.span(),
+                      &top_level_name,
+                      &maybe_export_name,
+                      module,
+                    );
+                  }
+                  // members
+                  SymbolNodeRef::AutoAccessor(_) => todo!(),
+                  SymbolNodeRef::ClassMethod(_) => todo!(),
+                  SymbolNodeRef::ClassProp(_) => todo!(),
+                  SymbolNodeRef::Constructor(_) => todo!(),
+                  SymbolNodeRef::TsIndexSignature(_) => {
+                    todo!()
+                  }
+                  SymbolNodeRef::TsCallSignatureDecl(_) => {
+                    todo!()
+                  }
+                  SymbolNodeRef::TsConstructSignatureDecl(_) => {
+                    todo!()
+                  }
+                  SymbolNodeRef::TsPropertySignature(_) => {
+                    todo!()
+                  }
+                  SymbolNodeRef::TsGetterSignature(_) => {
+                    todo!()
+                  }
+                  SymbolNodeRef::TsSetterSignature(_) => {
+                    todo!()
+                  }
+                  SymbolNodeRef::TsMethodSignature(_) => {
+                    todo!()
+                  }
+                },
+                None => todo!(),
               }
-              deno_graph::symbols::SymbolNodeRef::ClassDecl(decl) => {
-                self.output.add_class_decl(
-                  decl.clone(),
-                  &mut transformer,
-                  decl.span(),
-                  &top_level_name,
-                  &maybe_export_name,
-                  module,
-                );
-              }
-              deno_graph::symbols::SymbolNodeRef::FnDecl(decl) => {
-                self.output.add_function(
-                  decl.clone(),
-                  &mut transformer,
-                  decl.span(),
-                  &top_level_name,
-                  &maybe_export_name,
-                  module,
-                );
-              }
-              deno_graph::symbols::SymbolNodeRef::TsEnum(decl) => {
-                self.output.add_enum(
-                  decl.clone(),
-                  &mut transformer,
-                  decl.span(),
-                  &top_level_name,
-                  &maybe_export_name,
-                  module,
-                );
-              }
-              deno_graph::symbols::SymbolNodeRef::TsInterface(decl) => {
-                self.output.add_interface(
-                  decl.clone(),
-                  &mut transformer,
-                  decl.span(),
-                  &top_level_name,
-                  &maybe_export_name,
-                  module,
-                );
-              }
-              deno_graph::symbols::SymbolNodeRef::TsNamespace(_) => {
-                // do a message about how ts namespaces aren't supported at the moment
-                todo!()
-              }
-              deno_graph::symbols::SymbolNodeRef::TsTypeAlias(decl) => {
-                self.output.add_type_alias(
-                  decl.clone(),
-                  &mut transformer,
-                  decl.span(),
-                  &top_level_name,
-                  &maybe_export_name,
-                  module,
-                );
-              }
-              deno_graph::symbols::SymbolNodeRef::Var(decl, _, _) => {
-                self.output.add_var_decl(
-                  decl.clone(),
-                  &mut transformer,
-                  decl.span(),
-                  &top_level_name,
-                  &maybe_export_name,
-                  module,
-                );
-              }
-              // members
-              deno_graph::symbols::SymbolNodeRef::AutoAccessor(_) => todo!(),
-              deno_graph::symbols::SymbolNodeRef::ClassMethod(_) => todo!(),
-              deno_graph::symbols::SymbolNodeRef::ClassProp(_) => todo!(),
-              deno_graph::symbols::SymbolNodeRef::Constructor(_) => todo!(),
-              deno_graph::symbols::SymbolNodeRef::TsIndexSignature(_) => {
-                todo!()
-              }
-              deno_graph::symbols::SymbolNodeRef::TsCallSignatureDecl(_) => {
-                todo!()
-              }
-              deno_graph::symbols::SymbolNodeRef::TsConstructSignatureDecl(
-                _,
-              ) => {
-                todo!()
-              }
-              deno_graph::symbols::SymbolNodeRef::TsPropertySignature(_) => {
-                todo!()
-              }
-              deno_graph::symbols::SymbolNodeRef::TsGetterSignature(_) => {
-                todo!()
-              }
-              deno_graph::symbols::SymbolNodeRef::TsSetterSignature(_) => {
-                todo!()
-              }
-              deno_graph::symbols::SymbolNodeRef::TsMethodSignature(_) => {
-                todo!()
-              }
-            },
-            None => todo!(),
+            }
           }
         }
-        for symbol_id in transformer.found_symbols {
-          if self.analyzed_symbols.insert(symbol_id) {
-            self.pending_symbols.push_back((None, symbol_id));
+
+        if !transformer.ident_mapping.is_empty() {
+          let emit_info = self
+            .output
+            .module_emit_infos
+            .get_or_create(module.module_id());
+          for (id, symbol_id) in transformer.ident_mapping {
+            if self.analyzed_symbols.insert(symbol_id) {
+              self.pending_symbols.push_back((None, symbol_id));
+            }
+            emit_info.ident_mapping.insert(id, symbol_id);
           }
         }
       }
@@ -689,54 +781,181 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
       }
     }
 
-    if !self.queued_named_exports.is_empty() {
-      self.output.final_module.body.push(ModuleItem::ModuleDecl(
-        ModuleDecl::ExportNamed(NamedExport {
-          span: DUMMY_SP,
-          specifiers: self
-            .queued_named_exports
-            .drain(..)
-            .map(|(top_level_name, export_name)| {
-              ExportSpecifier::Named(ExportNamedSpecifier {
-                span: DUMMY_SP,
-                orig: ModuleExportName::Ident(Ident::new(
-                  top_level_name.into(),
-                  DUMMY_SP,
-                )),
-                exported: Some(ModuleExportName::Ident(Ident::new(
-                  export_name.into(),
-                  DUMMY_SP,
-                ))),
-                is_type_only: false,
-              })
-            })
-            .collect(),
-          src: None,
-          type_only: false,
-          with: None,
-        }),
-      ));
+    // now make these module ids a namespace
+    for module_id in pending_module_ids_to_make_namespace {
+      let module = self.root_symbol.get_module_from_id(module_id).unwrap();
+      let name = self
+        .top_level_symbols
+        .ensure_top_level_name(module.module_symbol());
+      let module_info = self.output.module_emit_infos.get_or_create(module_id);
+      if module_info.namespace_info.is_none() {
+        module_info.namespace_info = Some(NamespaceEmitInfo {
+          name,
+          exports: Vec::new(),
+        });
+      }
     }
+
+    let mut final_module = Module {
+      span: DUMMY_SP,
+      body: vec![],
+      shebang: None,
+    };
+
+    for i in 0..self.output.module_emit_infos.len() {
+      let mut items =
+        std::mem::take(&mut self.output.module_emit_infos.0[i].items);
+      let (module_id, module_emit_info) =
+        &self.output.module_emit_infos.0.get_index(i).unwrap();
+      let mut transformer = IdentTransformer {
+        reporter: self.reporter,
+        root_symbol: self.root_symbol,
+        ident_mapping: &module_emit_info.ident_mapping,
+        top_level_symbols: &mut self.top_level_symbols,
+        module_emit_info,
+        module_emit_infos: &self.output.module_emit_infos,
+      };
+      for module_item in &mut items {
+        module_item.visit_mut_with(&mut transformer);
+      }
+      match &module_emit_info.namespace_info {
+        Some(namespace_info) => {
+          let mut pending_export_specifiers = Vec::new();
+          for (export_name, symbol_id) in &namespace_info.exports {
+            if symbol_id.module_id == **module_id {
+              // only need to add an export
+              let dep_symbol = self
+                .root_symbol
+                .get_module_from_id(symbol_id.module_id)
+                .unwrap()
+                .symbol(symbol_id.symbol_id)
+                .unwrap();
+              let symbol_name =
+                self.top_level_symbols.ensure_top_level_name(dep_symbol);
+              pending_export_specifiers.push(ExportSpecifier::Named(
+                ExportNamedSpecifier {
+                  span: DUMMY_SP,
+                  exported: if symbol_name == *export_name {
+                    None
+                  } else {
+                    Some(ModuleExportName::Ident(ident(export_name.clone())))
+                  },
+                  orig: ModuleExportName::Ident(ident(symbol_name)),
+                  is_type_only: false,
+                },
+              ));
+            } else {
+              // need to add an import and export
+              let dep_module = self
+                .output
+                .module_emit_infos
+                .get(symbol_id.module_id)
+                .unwrap();
+              let namespace_info = dep_module.namespace_info.as_ref().unwrap();
+              let dep_symbol = self
+                .root_symbol
+                .get_module_from_id(symbol_id.module_id)
+                .unwrap()
+                .symbol(symbol_id.symbol_id)
+                .unwrap();
+              let symbol_name =
+                self.top_level_symbols.ensure_top_level_name(dep_symbol);
+              items.push(ModuleItem::ModuleDecl(ModuleDecl::TsImportEquals(
+                Box::new(TsImportEqualsDecl {
+                  span: DUMMY_SP,
+                  is_export: true,
+                  is_type_only: false,
+                  id: ident(export_name.clone()),
+                  module_ref: TsModuleRef::TsEntityName(
+                    TsEntityName::TsQualifiedName(Box::new(TsQualifiedName {
+                      left: ident(namespace_info.name.clone()).into(),
+                      right: ident(symbol_name),
+                    })),
+                  ),
+                }),
+              )));
+            }
+          }
+          if !pending_export_specifiers.is_empty() {
+            items.push(ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(
+              NamedExport {
+                span: DUMMY_SP,
+                specifiers: pending_export_specifiers,
+                src: None,
+                type_only: false,
+                with: None,
+              },
+            )));
+          }
+          final_module
+            .body
+            .push(ModuleItem::Stmt(Stmt::Decl(Decl::TsModule(Box::new(
+              TsModuleDecl {
+                span: DUMMY_SP,
+                declare: true,
+                global: false,
+                id: ident(namespace_info.name.clone()).into(),
+                body: Some(TsNamespaceBody::TsModuleBlock(TsModuleBlock {
+                  span: DUMMY_SP,
+                  body: items,
+                })),
+              },
+            )))));
+        }
+        None => {
+          final_module.body.extend(items);
+        }
+      }
+    }
+
+    if !self.queued_named_exports.is_empty() {
+      final_module
+        .body
+        .push(ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(
+          NamedExport {
+            span: DUMMY_SP,
+            specifiers: self
+              .queued_named_exports
+              .drain(..)
+              .map(|(top_level_name, export_name)| {
+                ExportSpecifier::Named(ExportNamedSpecifier {
+                  span: DUMMY_SP,
+                  orig: ModuleExportName::Ident(ident(top_level_name)),
+                  exported: Some(ModuleExportName::Ident(ident(export_name))),
+                  is_type_only: false,
+                })
+              })
+              .collect(),
+            src: None,
+            type_only: false,
+            with: None,
+          },
+        )));
+    }
+
+    final_module
   }
 }
 
-struct DtsTransformer<'a, TReporter: Reporter> {
+struct DtsTransformer<'a, 'b, TReporter: Reporter> {
   reporter: &'a TReporter,
-  root_symbol: &'a RootSymbol<'a>,
+  root_symbol: &'a RootSymbol<'b>,
   symbol: &'a Symbol,
-  top_level_symbols: &'a mut TopLevelSymbols,
+  top_level_symbols: &'a mut TopLevelSymbols<'b>,
   graph: &'a ModuleGraph,
   module_info: &'a EsmModuleInfo,
-  found_symbols: Vec<UniqueSymbolId>,
+  ident_mapping: IndexMap<Id, UniqueSymbolId>,
 }
 
-impl<'a, TReporter: Reporter> DtsTransformer<'a, TReporter> {
+impl<'a, 'b, TReporter: Reporter> DtsTransformer<'a, 'b, TReporter> {
   fn has_internal_jsdoc(&self, pos: SourcePos) -> bool {
     has_internal_jsdoc(self.module_info.source(), pos)
   }
 }
 
-impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
+impl<'a, 'b, TReporter: Reporter> VisitMut
+  for DtsTransformer<'a, 'b, TReporter>
+{
   fn visit_mut_auto_accessor(&mut self, n: &mut AutoAccessor) {
     visit_mut_auto_accessor(self, n)
   }
@@ -1042,10 +1261,7 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
         type_ann: if n.is_async {
           Box::new(TsType::TsTypeRef(TsTypeRef {
             span: DUMMY_SP,
-            type_name: TsEntityName::Ident(Ident::new(
-              "Promise".into(),
-              DUMMY_SP,
-            )),
+            type_name: TsEntityName::Ident(ident("Promise".to_string())),
             type_params: Some(Box::new(TsTypeParamInstantiation {
               span: DUMMY_SP,
               params: vec![return_type],
@@ -1054,10 +1270,7 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
         } else if n.is_generator {
           Box::new(TsType::TsTypeRef(TsTypeRef {
             span: DUMMY_SP,
-            type_name: TsEntityName::Ident(Ident::new(
-              "Generator".into(),
-              DUMMY_SP,
-            )),
+            type_name: TsEntityName::Ident(ident("Generator".into())),
             type_params: Some(Box::new(TsTypeParamInstantiation {
               span: DUMMY_SP,
               params: vec![
@@ -1086,34 +1299,29 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
     // todo: get top level mark and don't rely on this
     if n.span.ctxt.as_u32() > 0 {
       let id = n.to_id();
-      let entries = self.root_symbol.resolve_symbol_dep(
-        ModuleInfoRef::Esm(self.module_info),
-        self.symbol,
-        &SymbolNodeDep::Id(id),
-      );
-      let paths = entries
-        .into_iter()
-        .filter_map(|entry| match entry {
-          ResolvedSymbolDepEntry::Path(path) => Some(path),
-          _ => None,
-        })
-        .collect::<Vec<_>>();
-      if let Some(symbol_or_remote_dep) =
-        resolve_paths_to_remote_path(self.root_symbol, paths)
-      {
-        match symbol_or_remote_dep {
-          SymbolOrRemoteDep::Symbol(symbol_id) => {
-            self.found_symbols.push(symbol_id);
-            let module = self
-              .root_symbol
-              .get_module_from_id(symbol_id.module_id)
-              .unwrap();
-            let symbol = module.symbol(symbol_id.symbol_id).unwrap();
-            let name = self.top_level_symbols.ensure_top_level_name(symbol);
-            n.sym = name.into();
-            n.span = DUMMY_SP;
+      if !self.ident_mapping.contains_key(&id) {
+        // resolve the symbol
+        let entries = self.root_symbol.resolve_symbol_dep(
+          ModuleInfoRef::Esm(self.module_info),
+          self.symbol,
+          &SymbolNodeDep::Id(id.clone()),
+        );
+        let paths = entries
+          .into_iter()
+          .filter_map(|entry| match entry {
+            ResolvedSymbolDepEntry::Path(path) => Some(path),
+            _ => None,
+          })
+          .collect::<Vec<_>>();
+        if let Some(symbol_or_remote_dep) =
+          resolve_paths_to_remote_path(self.root_symbol, paths)
+        {
+          match symbol_or_remote_dep {
+            SymbolOrRemoteDep::Symbol(symbol_id) => {
+              self.ident_mapping.insert(id, symbol_id);
+            }
+            SymbolOrRemoteDep::RemoteDepName { .. } => todo!(),
           }
-          SymbolOrRemoteDep::RemoteDepName { .. } => todo!(),
         }
       }
     }
@@ -1390,6 +1598,134 @@ impl<'a, TReporter: Reporter> VisitMut for DtsTransformer<'a, TReporter> {
   fn visit_mut_assign_pat_prop(&mut self, n: &mut AssignPatProp) {
     n.value = None;
     visit_mut_assign_pat_prop(self, n)
+  }
+}
+
+#[derive(Default)]
+struct ModuleEmitInfos(IndexMap<ModuleId, ModuleEmitInfo>);
+
+impl ModuleEmitInfos {
+  pub fn len(&self) -> usize {
+    self.0.len()
+  }
+
+  pub fn get(&self, module_id: ModuleId) -> Option<&ModuleEmitInfo> {
+    self.0.get(&module_id)
+  }
+
+  pub fn get_or_create(&mut self, module_id: ModuleId) -> &mut ModuleEmitInfo {
+    self.0.entry(module_id).or_default()
+  }
+}
+
+struct IdentTransformer<'a, 'b, TReporter: Reporter> {
+  reporter: &'a TReporter,
+  root_symbol: &'a RootSymbol<'b>,
+  ident_mapping: &'a IndexMap<Id, UniqueSymbolId>,
+  top_level_symbols: &'a mut TopLevelSymbols<'b>,
+  module_emit_info: &'a ModuleEmitInfo,
+  module_emit_infos: &'a ModuleEmitInfos,
+}
+
+impl<'a, 'b, TReporter: Reporter> VisitMut
+  for IdentTransformer<'a, 'b, TReporter>
+{
+  fn visit_mut_binding_ident(&mut self, n: &mut BindingIdent) {
+    // do not visit n.ident
+    n.type_ann.visit_mut_with(self)
+  }
+
+  fn visit_mut_prop_name(&mut self, _n: &mut PropName) {
+    // ignore as it's like binding ident
+  }
+
+  fn visit_mut_ts_type_param(&mut self, n: &mut TsTypeParam) {
+    n.constraint.visit_mut_with(self);
+    n.default.visit_mut_with(self);
+  }
+
+  fn visit_mut_ts_entity_name(&mut self, n: &mut TsEntityName) {
+    match n {
+      TsEntityName::Ident(name_ident) => {
+        let id = name_ident.to_id();
+        if let Some(symbol_id) = self.ident_mapping.get(&id) {
+          let module = self
+            .root_symbol
+            .get_module_from_id(symbol_id.module_id)
+            .unwrap();
+          let symbol = module.symbol(symbol_id.symbol_id).unwrap();
+          let name = self.top_level_symbols.ensure_top_level_name(symbol);
+          let namespace_emit_info = self
+            .module_emit_infos
+            .get(module.module_id())
+            .and_then(|n| n.namespace_info.as_ref());
+          if let Some(namespace_emit_info) = namespace_emit_info {
+            *n = TsEntityName::TsQualifiedName(Box::new(TsQualifiedName {
+              left: TsEntityName::Ident(ident(
+                namespace_emit_info.name.clone(),
+              )),
+              right: ident(name.into()),
+            }))
+          } else {
+            name_ident.sym = name.into();
+            name_ident.span = DUMMY_SP;
+          }
+        }
+      }
+      TsEntityName::TsQualifiedName(qualified_name) => {
+        qualified_name.left.visit_mut_with(self);
+        qualified_name.right.visit_mut_with(self);
+      }
+    }
+  }
+
+  fn visit_mut_class_decl(&mut self, n: &mut ClassDecl) {
+    if self.module_emit_info.namespace_info.is_some() {
+      n.declare = false;
+    }
+    visit_mut_class_decl(self, n)
+  }
+
+  fn visit_mut_fn_decl(&mut self, n: &mut FnDecl) {
+    if self.module_emit_info.namespace_info.is_some() {
+      n.declare = false;
+    }
+    visit_mut_fn_decl(self, n)
+  }
+
+  fn visit_mut_ts_enum_decl(&mut self, n: &mut TsEnumDecl) {
+    if self.module_emit_info.namespace_info.is_some() {
+      n.declare = false;
+    }
+    visit_mut_ts_enum_decl(self, n)
+  }
+
+  fn visit_mut_ts_interface_decl(&mut self, n: &mut TsInterfaceDecl) {
+    if self.module_emit_info.namespace_info.is_some() {
+      n.declare = false;
+    }
+    visit_mut_ts_interface_decl(self, n)
+  }
+
+  fn visit_mut_var_decl(&mut self, n: &mut VarDecl) {
+    if self.module_emit_info.namespace_info.is_some() {
+      n.declare = false;
+    }
+    visit_mut_var_decl(self, n)
+  }
+
+  fn visit_mut_ident(&mut self, n: &mut Ident) {
+    // let id = n.to_id();
+    // if let Some(symbol_id) = self.ident_mapping.get(&id) {
+    //   let module = self
+    //     .root_symbol
+    //     .get_module_from_id(symbol_id.module_id)
+    //     .unwrap();
+    //   let symbol = module.symbol(symbol_id.symbol_id).unwrap();
+    //   let name = self.top_level_symbols.ensure_top_level_name(symbol);
+    //   n.sym = name.into();
+    //   n.span = DUMMY_SP;
+    // }
   }
 }
 
