@@ -22,26 +22,11 @@ export const final2: typeof test2;
 export const final3: typeof test3;
 
 # output.d.ts
-import { default as pack3DefaultImport } from "https://deno.land/a.ts";
-import { default as pack2DefaultImport } from "https://deno.land/b.ts";
-import * as pack2 from "https://deno.land/b.ts";
-declare module pack3Default {
-  export { pack3DefaultImport as __default };
-}
-declare module pack2Default {
-  export { pack2DefaultImport as __default };
-}
-declare module pack1 {
-  import Test1 = pack3Default.__default;
-  import Test2 = pack2Default.__default;
-  import TestB = pack2.TestB;
-  export const test1: Test1;
-  export const test2: Test2;
-  export const test3: TestB;
-}
-import test1 = pack1.test1;
-import test2 = pack1.test2;
-import test3 = pack1.test3;
+import { default as Test1 } from "https://deno.land/a.ts";
+import { default as Test2, TestB } from "https://deno.land/b.ts";
 export const final1: typeof test1;
 export const final2: typeof test2;
 export const final3: typeof test3;
+declare const test1: Test1;
+declare const test2: Test2;
+declare const test3: TestB;

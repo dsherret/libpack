@@ -3,6 +3,7 @@ use std::collections::VecDeque;
 use deno_graph::symbols::Definition;
 use deno_graph::symbols::DefinitionPath;
 use deno_graph::symbols::FileDep;
+use deno_graph::symbols::FileDepName;
 use deno_graph::symbols::ModuleId;
 use deno_graph::symbols::ModuleInfoRef;
 use deno_graph::symbols::ResolvedExportOrReExportAllPath;
@@ -18,21 +19,26 @@ use indexmap::IndexMap;
 use crate::helpers::is_remote_specifier;
 
 #[derive(Debug)]
-pub enum SymbolOrRemoteDep {
+pub struct RemoteDep {
+  pub referrer: ModuleId,
+  pub specifier_text: String,
+  pub resolved_specifier: ModuleSpecifier,
+  pub name: FileDepName,
+}
+
+#[derive(Debug)]
+pub enum SymbolIdOrRemoteDep {
   Symbol(UniqueSymbolId),
-  RemoteDepName {
-    referrer: ModuleId,
-    specifier: String,
-  },
+  RemoteDep(RemoteDep),
 }
 
 pub fn analyze_exports(
   root_symbol: &RootSymbol,
   graph: &ModuleGraph,
-) -> IndexMap<String, SymbolOrRemoteDep> {
+) -> IndexMap<String, SymbolIdOrRemoteDep> {
   fn fill_exports_to_dep(
     root_symbol: &RootSymbol,
-    exports_to_dep: &mut IndexMap<String, SymbolOrRemoteDep>,
+    exports_to_dep: &mut IndexMap<String, SymbolIdOrRemoteDep>,
     export_name: String,
     export_or_re_export_all_path: ResolvedExportOrReExportAllPath,
   ) {
@@ -47,11 +53,13 @@ pub fn analyze_exports(
       ResolvedExportOrReExportAllPath::ReExportAllPath(path) => {
         if is_remote_specifier(path.resolved_module().specifier()) {
           exports_to_dep.insert(
-            export_name,
-            SymbolOrRemoteDep::RemoteDepName {
+            export_name.clone(),
+            SymbolIdOrRemoteDep::RemoteDep(RemoteDep {
               referrer: path.referrer_module.module_id(),
-              specifier: path.specifier.to_string(),
-            },
+              resolved_specifier: path.referrer_module.specifier().clone(),
+              specifier_text: path.specifier.to_string(),
+              name: FileDepName::Name(export_name),
+            }),
           );
         } else {
           fill_exports_to_dep(
@@ -89,7 +97,7 @@ pub fn analyze_exports(
 fn resolve_export_to_definition(
   root_symbol: &RootSymbol<'_>,
   export: &deno_graph::symbols::ResolvedExport<'_>,
-) -> Option<SymbolOrRemoteDep> {
+) -> Option<SymbolIdOrRemoteDep> {
   let paths = root_symbol.find_definition_paths(export.module, export.symbol());
   resolve_paths_to_remote_path(root_symbol, paths)
 }
@@ -97,7 +105,7 @@ fn resolve_export_to_definition(
 pub fn resolve_paths_to_remote_path(
   root_symbol: &RootSymbol,
   paths: Vec<DefinitionPath>,
-) -> Option<SymbolOrRemoteDep> {
+) -> Option<SymbolIdOrRemoteDep> {
   let mut pending_paths = paths.into_iter().collect::<VecDeque<_>>();
   while let Some(path) = pending_paths.pop_front() {
     debug_assert!(!is_remote_specifier(path.module().specifier()));
@@ -117,10 +125,12 @@ pub fn resolve_paths_to_remote_path(
               .resolve_types_dependency(&file_ref.specifier, module.specifier())
             {
               if is_remote_specifier(&specifier) {
-                return Some(SymbolOrRemoteDep::RemoteDepName {
+                return Some(SymbolIdOrRemoteDep::RemoteDep(RemoteDep {
                   referrer: module.module_id(),
-                  specifier: file_ref.specifier.to_string(),
-                });
+                  specifier_text: file_ref.specifier.to_string(),
+                  resolved_specifier: specifier,
+                  name: file_ref.name.clone(),
+                }));
               }
             }
             pending_paths.extend(next);
@@ -143,12 +153,12 @@ pub fn resolve_paths_to_remote_path(
             root_symbol.get_module_from_specifier(&specifier)
           });
           if let Some(module) = maybe_dep_module {
-            return Some(SymbolOrRemoteDep::Symbol(
+            return Some(SymbolIdOrRemoteDep::Symbol(
               module.module_symbol().unique_id(),
             ));
           }
         } else {
-          return Some(SymbolOrRemoteDep::Symbol(d.symbol.unique_id()));
+          return Some(SymbolIdOrRemoteDep::Symbol(d.symbol.unique_id()));
         }
       }
       DefinitionPath::Unresolved(_) => {

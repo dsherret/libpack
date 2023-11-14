@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -23,6 +24,7 @@ use deno_ast::SourceRange;
 use deno_ast::SourceRangedForSpanned;
 use deno_graph::symbols::EsmModuleInfo;
 use deno_graph::symbols::ExportDeclRef;
+use deno_graph::symbols::FileDepName;
 use deno_graph::symbols::ModuleId;
 use deno_graph::symbols::ModuleInfoRef;
 use deno_graph::symbols::ResolvedSymbolDepEntry;
@@ -50,7 +52,7 @@ use crate::DiagnosticKind;
 use crate::Reporter;
 
 use self::analyzer::analyze_exports;
-use self::analyzer::SymbolOrRemoteDep;
+use self::analyzer::SymbolIdOrRemoteDep;
 
 mod analyzer;
 
@@ -98,8 +100,8 @@ pub fn pack_dts(
   let pending_symbols = analyzed_exports
     .iter()
     .filter_map(|(export_name, d)| match d {
-      SymbolOrRemoteDep::Symbol(dep) => Some((export_name, dep)),
-      SymbolOrRemoteDep::RemoteDepName { .. } => None,
+      SymbolIdOrRemoteDep::Symbol(dep) => Some((export_name, dep)),
+      SymbolIdOrRemoteDep::RemoteDep { .. } => None,
     })
     .map(|(export_name, id)| (Some(export_name.to_string()), *id))
     .collect::<VecDeque<_>>();
@@ -128,6 +130,8 @@ pub fn pack_dts(
       name_collision_count: Default::default(),
       symbol_id_to_name: Default::default(),
       public_symbols: Default::default(),
+      imports: Default::default(),
+      pending_imports: Default::default(),
     },
     queued_named_exports: Default::default(),
   };
@@ -140,12 +144,20 @@ pub fn pack_dts(
   )
 }
 
+struct PendingImport {
+  specifier: String,
+  named_imports: Vec<(String, String)>,
+  namespace_import: Option<String>,
+}
+
 struct TopLevelSymbols<'a> {
   root_symbol: &'a RootSymbol<'a>,
   names: HashSet<String>,
   name_collision_count: IndexMap<String, usize>,
   symbol_id_to_name: IndexMap<UniqueSymbolId, String>,
   public_symbols: IndexSet<UniqueSymbolId>,
+  imports: HashMap<(String, FileDepName), String>,
+  pending_imports: IndexMap<ModuleSpecifier, PendingImport>,
 }
 
 impl<'a> TopLevelSymbols<'a> {
@@ -179,6 +191,50 @@ impl<'a> TopLevelSymbols<'a> {
     name
   }
 
+  pub fn resolve_remote_dep(
+    &mut self,
+    remote_dep: &analyzer::RemoteDep,
+    name_hint: &str,
+  ) -> String {
+    let key = (
+      remote_dep.resolved_specifier.to_string(),
+      remote_dep.name.clone(),
+    );
+    if let Some(name) = self.imports.get(&key) {
+      name.clone()
+    } else {
+      let name = self.get_new_unique_name(name_hint);
+      self.imports.insert(key, name.clone());
+      let pending_import =
+        match self.pending_imports.get_mut(&remote_dep.resolved_specifier) {
+          Some(pending_import) => pending_import,
+          None => {
+            self.pending_imports.insert(
+              remote_dep.resolved_specifier.clone(),
+              PendingImport {
+                specifier: remote_dep.specifier_text.clone(),
+                named_imports: Vec::new(),
+                namespace_import: None,
+              },
+            );
+            self
+              .pending_imports
+              .get_mut(&remote_dep.resolved_specifier)
+              .unwrap()
+          }
+        };
+      match &remote_dep.name {
+        FileDepName::Star => {
+          pending_import.namespace_import = Some(name.clone())
+        }
+        FileDepName::Name(export_name) => pending_import
+          .named_imports
+          .push((export_name.clone(), name.clone())),
+      }
+      name
+    }
+  }
+
   fn get_new_unique_name(&mut self, name: &str) -> String {
     let name = if self.names.contains(name) {
       loop {
@@ -210,7 +266,7 @@ struct NamespaceEmitInfo {
 struct ModuleEmitInfo {
   namespace_info: Option<NamespaceEmitInfo>,
   items: Vec<ModuleItem>,
-  ident_mapping: IndexMap<Id, UniqueSymbolId>,
+  ident_mapping: IndexMap<Id, SymbolIdOrRemoteDep>,
 }
 
 struct OutputContainer {
@@ -779,11 +835,18 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
             .output
             .module_emit_infos
             .get_or_create(module.module_id());
-          for (id, symbol_id) in transformer.ident_mapping {
-            if self.analyzed_symbols.insert(symbol_id) {
-              self.pending_symbols.push_back((None, symbol_id));
+          for (id, symbol_id_or_remote_dep) in transformer.ident_mapping {
+            match &symbol_id_or_remote_dep {
+              SymbolIdOrRemoteDep::Symbol(symbol_id) => {
+                if self.analyzed_symbols.insert(*symbol_id) {
+                  self.pending_symbols.push_back((None, *symbol_id));
+                }
+              }
+              SymbolIdOrRemoteDep::RemoteDep(_) => {
+                // nothing to do
+              }
             }
-            emit_info.ident_mapping.insert(id, symbol_id);
+            emit_info.ident_mapping.insert(id, symbol_id_or_remote_dep);
           }
         }
       }
@@ -812,12 +875,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
       }
     }
 
-    let mut final_module = Module {
-      span: DUMMY_SP,
-      body: vec![],
-      shebang: None,
-    };
-
+    let mut final_items = Vec::new();
     for i in 0..self.output.module_emit_infos.len() {
       let mut items =
         std::mem::take(&mut self.output.module_emit_infos.0[i].items);
@@ -903,26 +961,69 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
               },
             )));
           }
-          final_module
-            .body
-            .push(ModuleItem::Stmt(Stmt::Decl(Decl::TsModule(Box::new(
-              TsModuleDecl {
+          final_items.push(ModuleItem::Stmt(Stmt::Decl(Decl::TsModule(
+            Box::new(TsModuleDecl {
+              span: DUMMY_SP,
+              declare: true,
+              global: false,
+              id: ident(namespace_info.name.clone()).into(),
+              body: Some(TsNamespaceBody::TsModuleBlock(TsModuleBlock {
                 span: DUMMY_SP,
-                declare: true,
-                global: false,
-                id: ident(namespace_info.name.clone()).into(),
-                body: Some(TsNamespaceBody::TsModuleBlock(TsModuleBlock {
-                  span: DUMMY_SP,
-                  body: items,
-                })),
-              },
-            )))));
+                body: items,
+              })),
+            }),
+          ))));
         }
         None => {
-          final_module.body.extend(items);
+          final_items.extend(items);
         }
       }
     }
+
+    let mut final_module = Module {
+      span: DUMMY_SP,
+      body: vec![],
+      shebang: None,
+    };
+
+    for (_, pending_import) in self.top_level_symbols.pending_imports.drain(..)
+    {
+      let mut specifiers = Vec::new();
+      for (export_name, local_name) in pending_import.named_imports {
+        let imported = if local_name == export_name {
+          None
+        } else {
+          Some(ident(export_name).into())
+        };
+        specifiers.push(ImportSpecifier::Named(ImportNamedSpecifier {
+          span: DUMMY_SP,
+          local: ident(local_name),
+          imported,
+          is_type_only: false,
+        }))
+      }
+      if let Some(namespace_import) = pending_import.namespace_import {
+        specifiers.push(ImportSpecifier::Namespace(ImportStarAsSpecifier {
+          span: DUMMY_SP,
+          local: ident(namespace_import),
+        }))
+      }
+      final_module
+        .body
+        .push(ModuleItem::ModuleDecl(ModuleDecl::Import(ImportDecl {
+          span: DUMMY_SP,
+          specifiers,
+          src: Box::new(Str {
+            span: DUMMY_SP,
+            value: pending_import.specifier.into(),
+            raw: None,
+          }),
+          type_only: false,
+          with: None,
+        })));
+    }
+
+    final_module.body.extend(final_items);
 
     if !self.queued_named_exports.is_empty() {
       final_module
@@ -960,7 +1061,7 @@ struct DtsTransformer<'a, 'b, TReporter: Reporter> {
   top_level_symbols: &'a mut TopLevelSymbols<'b>,
   graph: &'a ModuleGraph,
   module_info: &'a EsmModuleInfo,
-  ident_mapping: IndexMap<Id, UniqueSymbolId>,
+  ident_mapping: IndexMap<Id, SymbolIdOrRemoteDep>,
 }
 
 impl<'a, 'b, TReporter: Reporter> DtsTransformer<'a, 'b, TReporter> {
@@ -1331,12 +1432,7 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
         if let Some(symbol_or_remote_dep) =
           resolve_paths_to_remote_path(self.root_symbol, paths)
         {
-          match symbol_or_remote_dep {
-            SymbolOrRemoteDep::Symbol(symbol_id) => {
-              self.ident_mapping.insert(id, symbol_id);
-            }
-            SymbolOrRemoteDep::RemoteDepName { .. } => todo!(),
-          }
+          self.ident_mapping.insert(id, symbol_or_remote_dep);
         }
       }
     }
@@ -1636,7 +1732,7 @@ impl ModuleEmitInfos {
 struct IdentTransformer<'a, 'b, TReporter: Reporter> {
   reporter: &'a TReporter,
   root_symbol: &'a RootSymbol<'b>,
-  ident_mapping: &'a IndexMap<Id, UniqueSymbolId>,
+  ident_mapping: &'a IndexMap<Id, SymbolIdOrRemoteDep>,
   top_level_symbols: &'a mut TopLevelSymbols<'b>,
   module_emit_info: &'a ModuleEmitInfo,
   module_emit_infos: &'a ModuleEmitInfos,
@@ -1663,27 +1759,38 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
     match n {
       TsEntityName::Ident(name_ident) => {
         let id = name_ident.to_id();
-        if let Some(symbol_id) = self.ident_mapping.get(&id) {
-          let module = self
-            .root_symbol
-            .get_module_from_id(symbol_id.module_id)
-            .unwrap();
-          let symbol = module.symbol(symbol_id.symbol_id).unwrap();
-          let name = self.top_level_symbols.ensure_top_level_name(symbol);
-          let namespace_emit_info = self
-            .module_emit_infos
-            .get(module.module_id())
-            .and_then(|n| n.namespace_info.as_ref());
-          if let Some(namespace_emit_info) = namespace_emit_info {
-            *n = TsEntityName::TsQualifiedName(Box::new(TsQualifiedName {
-              left: TsEntityName::Ident(ident(
-                namespace_emit_info.name.clone(),
-              )),
-              right: ident(name.into()),
-            }))
-          } else {
-            name_ident.sym = name.into();
-            name_ident.span = DUMMY_SP;
+        if let Some(symbol_id_or_remote_dep) = self.ident_mapping.get(&id) {
+          match symbol_id_or_remote_dep {
+            SymbolIdOrRemoteDep::Symbol(symbol_id) => {
+              let module = self
+                .root_symbol
+                .get_module_from_id(symbol_id.module_id)
+                .unwrap();
+              let symbol = module.symbol(symbol_id.symbol_id).unwrap();
+              let name = self.top_level_symbols.ensure_top_level_name(symbol);
+              let namespace_emit_info = self
+                .module_emit_infos
+                .get(module.module_id())
+                .and_then(|n| n.namespace_info.as_ref());
+              if let Some(namespace_emit_info) = namespace_emit_info {
+                *n = TsEntityName::TsQualifiedName(Box::new(TsQualifiedName {
+                  left: TsEntityName::Ident(ident(
+                    namespace_emit_info.name.clone(),
+                  )),
+                  right: ident(name.into()),
+                }))
+              } else {
+                name_ident.sym = name.into();
+                name_ident.span = DUMMY_SP;
+              }
+            }
+            SymbolIdOrRemoteDep::RemoteDep(remote_dep) => {
+              let name = self
+                .top_level_symbols
+                .resolve_remote_dep(remote_dep, &name_ident.sym);
+              name_ident.sym = name.into();
+              name_ident.span = DUMMY_SP;
+            }
           }
         }
       }
