@@ -96,7 +96,10 @@ pub fn pack_dts(
   // - For every declaration, try to have it at the top level.
   // - If encountering a module or namespace, then create an appropriate typescript namespace that just re-exports the top level declarations.
 
-  let analyzed_exports = analyze_exports(&root_symbol, graph);
+  assert_eq!(graph.roots.len(), 1);
+  let root = &graph.roots[0];
+  let root_module_info = root_symbol.get_module_from_specifier(root).unwrap();
+  let analyzed_exports = analyze_exports(&root_symbol, root_module_info);
   let pending_symbols = analyzed_exports
     .iter()
     .filter_map(|(export_name, d)| match d {
@@ -132,6 +135,7 @@ pub fn pack_dts(
       public_symbols: Default::default(),
       imports: Default::default(),
       pending_imports: Default::default(),
+      re_exported_remote_imports_module: Default::default(),
     },
     queued_named_exports: Default::default(),
   };
@@ -150,6 +154,11 @@ struct PendingImport {
   namespace_import: Option<String>,
 }
 
+struct ReExportedRemoteImportsModule {
+  global_name: String,
+  exports: Vec<String>,
+}
+
 struct TopLevelSymbols<'a> {
   root_symbol: &'a RootSymbol<'a>,
   names: HashSet<String>,
@@ -158,6 +167,7 @@ struct TopLevelSymbols<'a> {
   public_symbols: IndexSet<UniqueSymbolId>,
   imports: HashMap<(String, FileDepName), String>,
   pending_imports: IndexMap<ModuleSpecifier, PendingImport>,
+  re_exported_remote_imports_module: Option<ReExportedRemoteImportsModule>,
 }
 
 impl<'a> TopLevelSymbols<'a> {
@@ -235,6 +245,27 @@ impl<'a> TopLevelSymbols<'a> {
     }
   }
 
+  pub fn add_global_name_to_reexported_remote_imports_module(
+    &mut self,
+    export_global_name: String,
+  ) -> String {
+    match &mut self.re_exported_remote_imports_module {
+      Some(module) => {
+        module.exports.push(export_global_name);
+        module.global_name.clone()
+      }
+      None => {
+        let module_name = self.get_new_unique_name("ReExportedRemoteImports");
+        self.re_exported_remote_imports_module =
+          Some(ReExportedRemoteImportsModule {
+            global_name: module_name.clone(),
+            exports: vec![export_global_name],
+          });
+        module_name
+      }
+    }
+  }
+
   fn get_new_unique_name(&mut self, name: &str) -> String {
     let name = if self.names.contains(name) {
       loop {
@@ -259,7 +290,7 @@ impl<'a> TopLevelSymbols<'a> {
 #[derive(Debug)]
 struct NamespaceEmitInfo {
   name: String,
-  exports: Vec<(String, UniqueSymbolId)>,
+  exports: Vec<(String, SymbolIdOrRemoteDep)>,
 }
 
 #[derive(Default)]
@@ -555,28 +586,28 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
                         }
                       };
                     if namespace_info.exports.is_empty() {
-                      let symbol_exports = module.exports(&self.root_symbol);
-                      for (name, export) in symbol_exports.resolved {
-                        let resolved_export = export.as_resolved_export();
-                        let mut definitions =
-                          self.root_symbol.go_to_definitions(
-                            resolved_export.module,
-                            resolved_export.symbol(),
-                          );
-                        if let Some(definition) = definitions.next() {
-                          let symbol_id = definition.symbol.unique_id();
-                          if self.analyzed_symbols.insert(symbol_id) {
-                            self.pending_symbols.push_back((None, symbol_id));
+                      debug_assert!(!is_remote_specifier(module.specifier()));
+                      let exports = analyze_exports(&self.root_symbol, module);
+                      for (name, symbol_id_or_dep) in exports {
+                        match &symbol_id_or_dep {
+                          SymbolIdOrRemoteDep::Symbol(symbol_id) => {
+                            if self.analyzed_symbols.insert(*symbol_id) {
+                              self
+                                .pending_symbols
+                                .push_back((None, *symbol_id));
+                            }
+                            if symbol_id.module_id != module.module_id() {
+                              pending_module_ids_to_make_namespace
+                                .insert(symbol_id.module_id);
+                            }
                           }
-                          namespace_info
-                            .exports
-                            .push((name.clone(), symbol_id));
-                          if definition.module.module_id() != module.module_id()
-                          {
-                            pending_module_ids_to_make_namespace
-                              .insert(definition.module.module_id());
+                          SymbolIdOrRemoteDep::RemoteDep(_) => {
+                            // will handle it below
                           }
                         }
+                        namespace_info
+                          .exports
+                          .push((name.clone(), symbol_id_or_dep));
                       }
                     }
                   }
@@ -895,59 +926,95 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
       match &module_emit_info.namespace_info {
         Some(namespace_info) => {
           let mut pending_export_specifiers = Vec::new();
-          for (export_name, symbol_id) in &namespace_info.exports {
-            if symbol_id.module_id == **module_id {
-              // only need to add an export
-              let dep_symbol = self
-                .root_symbol
-                .get_module_from_id(symbol_id.module_id)
-                .unwrap()
-                .symbol(symbol_id.symbol_id)
-                .unwrap();
-              let symbol_name =
-                self.top_level_symbols.ensure_top_level_name(dep_symbol);
-              pending_export_specifiers.push(ExportSpecifier::Named(
-                ExportNamedSpecifier {
-                  span: DUMMY_SP,
-                  exported: if symbol_name == *export_name {
-                    None
-                  } else {
-                    Some(ModuleExportName::Ident(ident(export_name.clone())))
-                  },
-                  orig: ModuleExportName::Ident(ident(symbol_name)),
-                  is_type_only: false,
-                },
-              ));
-            } else {
-              // need to add an import and export
-              let dep_module = self
-                .output
-                .module_emit_infos
-                .get(symbol_id.module_id)
-                .unwrap();
-              let namespace_info = dep_module.namespace_info.as_ref().unwrap();
-              let dep_symbol = self
-                .root_symbol
-                .get_module_from_id(symbol_id.module_id)
-                .unwrap()
-                .symbol(symbol_id.symbol_id)
-                .unwrap();
-              let symbol_name =
-                self.top_level_symbols.ensure_top_level_name(dep_symbol);
-              items.push(ModuleItem::ModuleDecl(ModuleDecl::TsImportEquals(
-                Box::new(TsImportEqualsDecl {
-                  span: DUMMY_SP,
-                  is_export: true,
-                  is_type_only: false,
-                  id: ident(export_name.clone()),
-                  module_ref: TsModuleRef::TsEntityName(
-                    TsEntityName::TsQualifiedName(Box::new(TsQualifiedName {
-                      left: ident(namespace_info.name.clone()).into(),
-                      right: ident(symbol_name),
+          for (export_name, symbol_id_or_remote_dep) in &namespace_info.exports
+          {
+            match symbol_id_or_remote_dep {
+              SymbolIdOrRemoteDep::Symbol(symbol_id) => {
+                if symbol_id.module_id == **module_id {
+                  // only need to add an export
+                  let dep_symbol = self
+                    .root_symbol
+                    .get_module_from_id(symbol_id.module_id)
+                    .unwrap()
+                    .symbol(symbol_id.symbol_id)
+                    .unwrap();
+                  let symbol_name =
+                    self.top_level_symbols.ensure_top_level_name(dep_symbol);
+                  pending_export_specifiers.push(ExportSpecifier::Named(
+                    ExportNamedSpecifier {
+                      span: DUMMY_SP,
+                      exported: if symbol_name == *export_name {
+                        None
+                      } else {
+                        Some(ModuleExportName::Ident(ident(
+                          export_name.clone(),
+                        )))
+                      },
+                      orig: ModuleExportName::Ident(ident(symbol_name)),
+                      is_type_only: false,
+                    },
+                  ));
+                } else {
+                  // need to add an import and export
+                  let dep_module = self
+                    .output
+                    .module_emit_infos
+                    .get(symbol_id.module_id)
+                    .unwrap();
+                  let namespace_info =
+                    dep_module.namespace_info.as_ref().unwrap();
+                  let dep_symbol = self
+                    .root_symbol
+                    .get_module_from_id(symbol_id.module_id)
+                    .unwrap()
+                    .symbol(symbol_id.symbol_id)
+                    .unwrap();
+                  let symbol_name =
+                    self.top_level_symbols.ensure_top_level_name(dep_symbol);
+                  items.push(ModuleItem::ModuleDecl(
+                    ModuleDecl::TsImportEquals(Box::new(TsImportEqualsDecl {
+                      span: DUMMY_SP,
+                      is_export: true,
+                      is_type_only: false,
+                      id: ident(export_name.clone()),
+                      module_ref: TsModuleRef::TsEntityName(
+                        TsEntityName::TsQualifiedName(Box::new(
+                          TsQualifiedName {
+                            left: ident(namespace_info.name.clone()).into(),
+                            right: ident(symbol_name),
+                          },
+                        )),
+                      ),
                     })),
-                  ),
-                }),
-              )));
+                  ));
+                }
+              }
+              SymbolIdOrRemoteDep::RemoteDep(remote_dep) => {
+                let export_global_name = self
+                  .top_level_symbols
+                  .resolve_remote_dep(remote_dep, &export_name);
+                let remote_imports_module_name = self
+                  .top_level_symbols
+                  .add_global_name_to_reexported_remote_imports_module(
+                    export_global_name.clone(),
+                  );
+                items.push(ModuleItem::ModuleDecl(ModuleDecl::TsImportEquals(
+                  Box::new(TsImportEqualsDecl {
+                    span: DUMMY_SP,
+                    is_export: true,
+                    is_type_only: false,
+                    id: ident(export_name.clone()),
+                    module_ref: TsModuleRef::TsEntityName(
+                      TsEntityName::TsQualifiedName(Box::new(
+                        TsQualifiedName {
+                          left: ident(remote_imports_module_name).into(),
+                          right: ident(format!("__{}", export_global_name)),
+                        },
+                      )),
+                    ),
+                  }),
+                )));
+              }
             }
           }
           if !pending_export_specifiers.is_empty() {
@@ -1021,6 +1088,40 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
           type_only: false,
           with: None,
         })));
+    }
+    if let Some(module) = self
+      .top_level_symbols
+      .re_exported_remote_imports_module
+      .take()
+    {
+      let mut items = Vec::new();
+      for export_name in module.exports {
+        items.push(ModuleItem::ModuleDecl(ModuleDecl::TsImportEquals(
+          Box::new(TsImportEqualsDecl {
+            span: DUMMY_SP,
+            is_export: true,
+            is_type_only: false,
+            id: ident(format!("__{}", export_name)),
+            module_ref: TsModuleRef::TsEntityName(TsEntityName::Ident(ident(
+              export_name,
+            ))),
+          }),
+        )));
+      }
+      final_module
+        .body
+        .push(ModuleItem::Stmt(Stmt::Decl(Decl::TsModule(Box::new(
+          TsModuleDecl {
+            span: DUMMY_SP,
+            declare: true,
+            global: false,
+            id: ident(module.global_name).into(),
+            body: Some(TsNamespaceBody::TsModuleBlock(TsModuleBlock {
+              span: DUMMY_SP,
+              body: items,
+            })),
+          },
+        )))));
     }
 
     final_module.body.extend(final_items);

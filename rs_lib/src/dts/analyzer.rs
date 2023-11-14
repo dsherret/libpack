@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use deno_graph::symbols::Definition;
+use deno_graph::symbols::DefinitionKind;
 use deno_graph::symbols::DefinitionPath;
 use deno_graph::symbols::FileDep;
 use deno_graph::symbols::FileDepName;
@@ -34,7 +35,7 @@ pub enum SymbolIdOrRemoteDep {
 
 pub fn analyze_exports(
   root_symbol: &RootSymbol,
-  graph: &ModuleGraph,
+  module_info: ModuleInfoRef<'_>,
 ) -> IndexMap<String, SymbolIdOrRemoteDep> {
   fn fill_exports_to_dep(
     root_symbol: &RootSymbol,
@@ -73,11 +74,8 @@ pub fn analyze_exports(
     }
   }
 
-  assert_eq!(graph.roots.len(), 1);
   let mut exports_to_dep = IndexMap::new();
-  let root = &graph.roots[0];
-  let module_symbol = root_symbol.get_module_from_specifier(root).unwrap();
-  let exports = module_symbol.exports(root_symbol);
+  let exports = module_info.exports(root_symbol);
   for (export_name, export_or_re_export_all_path) in exports.resolved {
     eprintln!("EXPORT: {}", export_name);
     fill_exports_to_dep(
@@ -121,14 +119,14 @@ pub fn resolve_paths_to_remote_path(
           SymbolDeclKind::FileRef(file_ref) => {
             // resolve the file ref specifier because the next path node might be an
             // unresolved specifier node, which wouldn't have the correct specifier
-            if let Some(specifier) = root_symbol
+            if let Some(resolved_specifier) = root_symbol
               .resolve_types_dependency(&file_ref.specifier, module.specifier())
             {
-              if is_remote_specifier(&specifier) {
+              if is_remote_specifier(&resolved_specifier) {
                 return Some(SymbolIdOrRemoteDep::RemoteDep(RemoteDep {
                   referrer: module.module_id(),
                   specifier_text: file_ref.specifier.to_string(),
-                  resolved_specifier: specifier,
+                  resolved_specifier,
                   name: file_ref.name.clone(),
                 }));
               }
@@ -142,6 +140,21 @@ pub fn resolve_paths_to_remote_path(
         }
       }
       DefinitionPath::Definition(d) => {
+        if let DefinitionKind::ExportStar(file_ref) = &d.kind {
+          if let Some(resolved_specifier) = root_symbol
+            .resolve_types_dependency(&file_ref.specifier, d.module.specifier())
+          {
+            if is_remote_specifier(&resolved_specifier) {
+              return Some(SymbolIdOrRemoteDep::RemoteDep(RemoteDep {
+                referrer: d.module.module_id(),
+                specifier_text: file_ref.specifier.to_string(),
+                resolved_specifier,
+                name: file_ref.name.clone(),
+              }));
+            }
+          }
+        }
+
         if let Some(file_dep) = d.symbol.file_dep() {
           assert_eq!(file_dep.name.maybe_name(), None);
           // resolve the to the module's symbol id
