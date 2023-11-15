@@ -1,3 +1,5 @@
+// NOTE: PROTOTYPE CODE—VERY VERY MESSY!!!
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -39,7 +41,7 @@ use deno_graph::ModuleGraph;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
 
-use crate::dts::analyzer::resolve_paths_to_remote_path;
+use crate::dts::analyzer::resolve_paths_to_symbol_or_remote_dep;
 use crate::helpers::adjust_spans;
 use crate::helpers::fill_leading_comments;
 use crate::helpers::ident;
@@ -52,6 +54,7 @@ use crate::DiagnosticKind;
 use crate::Reporter;
 
 use self::analyzer::analyze_exports;
+use self::analyzer::RemoteDep;
 use self::analyzer::SymbolIdOrRemoteDep;
 
 mod analyzer;
@@ -298,6 +301,7 @@ struct ModuleEmitInfo {
   namespace_info: Option<NamespaceEmitInfo>,
   items: Vec<ModuleItem>,
   ident_mapping: IndexMap<Id, SymbolIdOrRemoteDep>,
+  import_type_mapping: IndexMap<(String, Option<String>), SymbolIdOrRemoteDep>,
 }
 
 struct OutputContainer {
@@ -556,6 +560,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
           graph: self.graph,
           module_info: module.esm().unwrap(), // todo: handle json
           ident_mapping: Default::default(),
+          import_type_mapping: Default::default(),
         };
         for decl in symbol.decls() {
           if decl.has_overloads() {
@@ -861,7 +866,9 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
           }
         }
 
-        if !transformer.ident_mapping.is_empty() {
+        if !transformer.ident_mapping.is_empty()
+          || !transformer.import_type_mapping.is_empty()
+        {
           let emit_info = self
             .output
             .module_emit_infos
@@ -878,6 +885,22 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
               }
             }
             emit_info.ident_mapping.insert(id, symbol_id_or_remote_dep);
+          }
+          for (key, symbol_id_or_remote_dep) in transformer.import_type_mapping
+          {
+            match &symbol_id_or_remote_dep {
+              SymbolIdOrRemoteDep::Symbol(symbol_id) => {
+                if self.analyzed_symbols.insert(*symbol_id) {
+                  self.pending_symbols.push_back((None, *symbol_id));
+                }
+              }
+              SymbolIdOrRemoteDep::RemoteDep(_) => {
+                // nothing to do
+              }
+            }
+            emit_info
+              .import_type_mapping
+              .insert(key, symbol_id_or_remote_dep);
           }
         }
       }
@@ -912,10 +935,12 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
         std::mem::take(&mut self.output.module_emit_infos.0[i].items);
       let (module_id, module_emit_info) =
         &self.output.module_emit_infos.0.get_index(i).unwrap();
+      let module_id = **module_id;
       let mut transformer = IdentTransformer {
         reporter: self.reporter,
         root_symbol: self.root_symbol,
         ident_mapping: &module_emit_info.ident_mapping,
+        import_type_mapping: &module_emit_info.import_type_mapping,
         top_level_symbols: &mut self.top_level_symbols,
         module_emit_info,
         module_emit_infos: &self.output.module_emit_infos,
@@ -930,7 +955,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
           {
             match symbol_id_or_remote_dep {
               SymbolIdOrRemoteDep::Symbol(symbol_id) => {
-                if symbol_id.module_id == **module_id {
+                if symbol_id.module_id == module_id {
                   // only need to add an export
                   let dep_symbol = self
                     .root_symbol
@@ -1163,6 +1188,7 @@ struct DtsTransformer<'a, 'b, TReporter: Reporter> {
   graph: &'a ModuleGraph,
   module_info: &'a EsmModuleInfo,
   ident_mapping: IndexMap<Id, SymbolIdOrRemoteDep>,
+  import_type_mapping: IndexMap<(String, Option<String>), SymbolIdOrRemoteDep>,
 }
 
 impl<'a, 'b, TReporter: Reporter> DtsTransformer<'a, 'b, TReporter> {
@@ -1531,7 +1557,7 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
           })
           .collect::<Vec<_>>();
         if let Some(symbol_or_remote_dep) =
-          resolve_paths_to_remote_path(self.root_symbol, paths)
+          resolve_paths_to_symbol_or_remote_dep(self.root_symbol, paths)
         {
           self.ident_mapping.insert(id, symbol_or_remote_dep);
         }
@@ -1539,6 +1565,63 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
     }
 
     visit_mut_ident(self, n)
+  }
+
+  fn visit_mut_ts_import_type(&mut self, n: &mut TsImportType) {
+    let maybe_ident = n.qualifier.as_ref().map(resolve_leftmost_in_entity_name);
+    let key = (
+      n.arg.value.to_string(),
+      maybe_ident.as_ref().map(|ident| ident.sym.to_string()),
+    );
+    if !self.import_type_mapping.contains_key(&key) {
+      if let Some(resolved_specifier) = self
+        .root_symbol
+        .resolve_types_dependency(&n.arg.value, self.module_info.specifier())
+      {
+        if is_remote_specifier(&resolved_specifier) {
+          // no need to do anything, leave this import type as-is
+        } else {
+          match maybe_ident {
+            Some(ident) => {
+              let entries = self.root_symbol.resolve_symbol_dep(
+                ModuleInfoRef::Esm(self.module_info),
+                self.symbol,
+                &SymbolNodeDep::ImportType(
+                  n.arg.value.to_string(),
+                  vec![ident.sym.to_string()],
+                ),
+              );
+              let paths = entries
+                .into_iter()
+                .filter_map(|entry| match entry {
+                  ResolvedSymbolDepEntry::Path(path) => Some(path),
+                  _ => None,
+                })
+                .collect::<Vec<_>>();
+              if let Some(symbol_or_remote_dep) =
+                resolve_paths_to_symbol_or_remote_dep(self.root_symbol, paths)
+              {
+                self.import_type_mapping.insert(key, symbol_or_remote_dep);
+              }
+            }
+            None => {
+              if let Some(module) = self
+                .root_symbol
+                .get_module_from_specifier(&resolved_specifier)
+              {
+                self.import_type_mapping.insert(
+                  key,
+                  SymbolIdOrRemoteDep::Symbol(
+                    module.module_symbol().unique_id(),
+                  ),
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+    visit_mut_ts_import_type(self, n)
   }
 
   fn visit_mut_import(&mut self, n: &mut Import) {
@@ -1834,6 +1917,8 @@ struct IdentTransformer<'a, 'b, TReporter: Reporter> {
   reporter: &'a TReporter,
   root_symbol: &'a RootSymbol<'b>,
   ident_mapping: &'a IndexMap<Id, SymbolIdOrRemoteDep>,
+  import_type_mapping:
+    &'a IndexMap<(String, Option<String>), SymbolIdOrRemoteDep>,
   top_level_symbols: &'a mut TopLevelSymbols<'b>,
   module_emit_info: &'a ModuleEmitInfo,
   module_emit_infos: &'a ModuleEmitInfos,
@@ -1930,6 +2015,10 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
     visit_mut_ts_interface_decl(self, n)
   }
 
+  fn visit_mut_ts_import_type(&mut self, n: &mut TsImportType) {
+    visit_mut_ts_import_type(self, n)
+  }
+
   fn visit_mut_var_decl(&mut self, n: &mut VarDecl) {
     if self.module_emit_info.namespace_info.is_some() {
       n.declare = false;
@@ -1949,6 +2038,46 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
     //   n.sym = name.into();
     //   n.span = DUMMY_SP;
     // }
+  }
+
+  fn visit_mut_ts_type(&mut self, n: &mut TsType) {
+    match n {
+      TsType::TsImportType(n) => {
+        let maybe_ident =
+          n.qualifier.as_ref().map(resolve_leftmost_in_entity_name);
+        let key = (
+          n.arg.value.to_string(),
+          maybe_ident.map(|i| i.sym.to_string()),
+        );
+        if let Some(symbol_id_or_remote_dep) =
+          self.import_type_mapping.get(&key)
+        {
+          match symbol_id_or_remote_dep {
+            SymbolIdOrRemoteDep::Symbol(_) => todo!(),
+            SymbolIdOrRemoteDep::RemoteDep(remote_dep) => {
+              n.arg.value = remote_dep.specifier_text.clone().into();
+              n.arg.raw = None;
+              match &remote_dep.name {
+                FileDepName::Name(name) => {
+                  if let Some(qualifier) = &mut n.qualifier {
+                    let ident = resolve_leftmost_in_entity_name_mut(qualifier);
+                    ident.sym = name.to_string().into();
+                  } else {
+                    n.qualifier =
+                      Some(TsEntityName::Ident(ident(name.to_string().into())));
+                  }
+                }
+                FileDepName::Star => {
+                  n.qualifier = None;
+                }
+              }
+            }
+          }
+        }
+      }
+      _ => {}
+    }
+    visit_mut_ts_type(self, n)
   }
 }
 
@@ -2028,6 +2157,24 @@ fn get_return_stmt_from_stmts<'a>(stmts: &'a [Stmt]) -> Option<&'a ReturnStmt> {
   }
 
   None
+}
+
+fn resolve_leftmost_in_entity_name(name: &TsEntityName) -> &Ident {
+  match name {
+    TsEntityName::TsQualifiedName(name) => {
+      resolve_leftmost_in_entity_name(&name.left)
+    }
+    TsEntityName::Ident(ident) => ident,
+  }
+}
+
+fn resolve_leftmost_in_entity_name_mut(name: &mut TsEntityName) -> &mut Ident {
+  match name {
+    TsEntityName::TsQualifiedName(name) => {
+      resolve_leftmost_in_entity_name_mut(&mut name.left)
+    }
+    TsEntityName::Ident(ident) => ident,
+  }
 }
 
 fn get_return_stmt_from_stmt<'a>(stmt: &'a Stmt) -> Option<&'a ReturnStmt> {
