@@ -101,7 +101,7 @@ pub fn pack_dts(
 
   assert_eq!(graph.roots.len(), 1);
   let root = &graph.roots[0];
-  let root_module_info = root_symbol.get_module_from_specifier(root).unwrap();
+  let root_module_info = root_symbol.module_from_specifier(root).unwrap();
   let analyzed_exports = analyze_exports(&root_symbol, root_module_info);
   let pending_symbols = analyzed_exports
     .iter()
@@ -545,7 +545,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
     {
       let module = self
         .root_symbol
-        .get_module_from_id(symbol_id.module_id)
+        .module_from_id(symbol_id.module_id)
         .unwrap();
       let symbol = module.symbol(symbol_id.symbol_id).unwrap();
       let top_level_name = self.top_level_symbols.ensure_top_level_name(symbol);
@@ -916,7 +916,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
 
     // now make these module ids a namespace
     for module_id in pending_module_ids_to_make_namespace {
-      let module = self.root_symbol.get_module_from_id(module_id).unwrap();
+      let module = self.root_symbol.module_from_id(module_id).unwrap();
       let name = self
         .top_level_symbols
         .ensure_top_level_name(module.module_symbol());
@@ -959,7 +959,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
                   // only need to add an export
                   let dep_symbol = self
                     .root_symbol
-                    .get_module_from_id(symbol_id.module_id)
+                    .module_from_id(symbol_id.module_id)
                     .unwrap()
                     .symbol(symbol_id.symbol_id)
                     .unwrap();
@@ -990,7 +990,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
                     dep_module.namespace_info.as_ref().unwrap();
                   let dep_symbol = self
                     .root_symbol
-                    .get_module_from_id(symbol_id.module_id)
+                    .module_from_id(symbol_id.module_id)
                     .unwrap()
                     .symbol(symbol_id.symbol_id)
                     .unwrap();
@@ -1605,9 +1605,8 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
               }
             }
             None => {
-              if let Some(module) = self
-                .root_symbol
-                .get_module_from_specifier(&resolved_specifier)
+              if let Some(module) =
+                self.root_symbol.module_from_specifier(&resolved_specifier)
               {
                 self.import_type_mapping.insert(
                   key,
@@ -1950,7 +1949,7 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
             SymbolIdOrRemoteDep::Symbol(symbol_id) => {
               let module = self
                 .root_symbol
-                .get_module_from_id(symbol_id.module_id)
+                .module_from_id(symbol_id.module_id)
                 .unwrap();
               let symbol = module.symbol(symbol_id.symbol_id).unwrap();
               let name = self.top_level_symbols.ensure_top_level_name(symbol);
@@ -2040,8 +2039,8 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
     // }
   }
 
-  fn visit_mut_ts_type(&mut self, n: &mut TsType) {
-    match n {
+  fn visit_mut_ts_type(&mut self, main_type: &mut TsType) {
+    match main_type {
       TsType::TsImportType(n) => {
         let maybe_ident =
           n.qualifier.as_ref().map(resolve_leftmost_in_entity_name);
@@ -2053,7 +2052,24 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
           self.import_type_mapping.get(&key)
         {
           match symbol_id_or_remote_dep {
-            SymbolIdOrRemoteDep::Symbol(_) => todo!(),
+            SymbolIdOrRemoteDep::Symbol(symbol_id) => match &n.qualifier {
+              None | Some(TsEntityName::Ident(_)) => {
+                let module = self
+                  .root_symbol
+                  .module_from_id(symbol_id.module_id)
+                  .unwrap();
+                let symbol = module.symbol(symbol_id.symbol_id).unwrap();
+                let name = self.top_level_symbols.ensure_top_level_name(symbol);
+                *main_type = TsType::TsTypeRef(TsTypeRef {
+                  span: DUMMY_SP,
+                  type_name: ident(name).into(),
+                  type_params: n.type_args.take(),
+                });
+              }
+              Some(name) => {
+                todo!();
+              }
+            },
             SymbolIdOrRemoteDep::RemoteDep(remote_dep) => {
               n.arg.value = remote_dep.specifier_text.clone().into();
               n.arg.raw = None;
@@ -2077,7 +2093,20 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
       }
       _ => {}
     }
-    visit_mut_ts_type(self, n)
+    visit_mut_ts_type(self, main_type)
+  }
+
+  fn visit_mut_ts_type_query_expr(&mut self, n: &mut TsTypeQueryExpr) {
+    visit_mut_ts_type_query_expr(self, n);
+    match n {
+      TsTypeQueryExpr::TsEntityName(_) => {
+        // handle in entity name
+      }
+      TsTypeQueryExpr::Import(_) => {
+        // todo: conslidate somehow with the above
+        todo!()
+      }
+    }
   }
 }
 

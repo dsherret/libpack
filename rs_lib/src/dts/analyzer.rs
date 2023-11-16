@@ -163,7 +163,7 @@ pub fn resolve_paths_to_symbol_or_remote_dep(
             d.module.specifier(),
           );
           let maybe_dep_module = maybe_specifier.and_then(|specifier| {
-            root_symbol.get_module_from_specifier(&specifier)
+            root_symbol.module_from_specifier(&specifier)
           });
           if let Some(module) = maybe_dep_module {
             return Some(SymbolIdOrRemoteDep::Symbol(
@@ -186,7 +186,7 @@ fn get_module_info<'a>(
   root_symbol: &'a RootSymbol,
   specifier: &ModuleSpecifier,
 ) -> ModuleInfoRef<'a> {
-  root_symbol.get_module_from_specifier(specifier).unwrap()
+  root_symbol.module_from_specifier(specifier).unwrap()
 }
 
 fn resolve_deno_graph_module<'a>(
