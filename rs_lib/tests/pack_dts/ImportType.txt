@@ -19,7 +19,7 @@ export type MyType3 = typeof import("./other.ts").MyClass<string>;
 # output.d.ts
 export type MyType1 = import("https://deno.land/x/example/mod.ts").WalkOptions;
 export type MyType2 = Options;
-export type MyType2 = typeof MyClass<string>;
+export type MyType3 = typeof MyClass<string>;
 interface Options {
   prop: string;
 }

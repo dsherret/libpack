@@ -1923,6 +1923,56 @@ struct IdentTransformer<'a, 'b, TReporter: Reporter> {
   module_emit_infos: &'a ModuleEmitInfos,
 }
 
+impl<'a, 'b, TReporter: Reporter> IdentTransformer<'a, 'b, TReporter> {
+  pub fn handle_ts_import_type(
+    &mut self,
+    n: &mut TsImportType,
+  ) -> Option<TsEntityName> {
+    let maybe_ident = n.qualifier.as_ref().map(resolve_leftmost_in_entity_name);
+    let key = (
+      n.arg.value.to_string(),
+      maybe_ident.map(|i| i.sym.to_string()),
+    );
+    if let Some(symbol_id_or_remote_dep) = self.import_type_mapping.get(&key) {
+      match symbol_id_or_remote_dep {
+        SymbolIdOrRemoteDep::Symbol(symbol_id) => match &n.qualifier {
+          None | Some(TsEntityName::Ident(_)) => {
+            let module = self
+              .root_symbol
+              .module_from_id(symbol_id.module_id)
+              .unwrap();
+            let symbol = module.symbol(symbol_id.symbol_id).unwrap();
+            let name = self.top_level_symbols.ensure_top_level_name(symbol);
+            return Some(ident(name).into());
+          }
+          Some(name) => {
+            todo!();
+          }
+        },
+        SymbolIdOrRemoteDep::RemoteDep(remote_dep) => {
+          n.arg.value = remote_dep.specifier_text.clone().into();
+          n.arg.raw = None;
+          match &remote_dep.name {
+            FileDepName::Name(name) => {
+              if let Some(qualifier) = &mut n.qualifier {
+                let ident = resolve_leftmost_in_entity_name_mut(qualifier);
+                ident.sym = name.to_string().into();
+              } else {
+                n.qualifier =
+                  Some(TsEntityName::Ident(ident(name.to_string().into())));
+              }
+            }
+            FileDepName::Star => {
+              n.qualifier = None;
+            }
+          }
+        }
+      }
+    }
+    None
+  }
+}
+
 impl<'a, 'b, TReporter: Reporter> VisitMut
   for IdentTransformer<'a, 'b, TReporter>
 {
@@ -2042,53 +2092,12 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
   fn visit_mut_ts_type(&mut self, main_type: &mut TsType) {
     match main_type {
       TsType::TsImportType(n) => {
-        let maybe_ident =
-          n.qualifier.as_ref().map(resolve_leftmost_in_entity_name);
-        let key = (
-          n.arg.value.to_string(),
-          maybe_ident.map(|i| i.sym.to_string()),
-        );
-        if let Some(symbol_id_or_remote_dep) =
-          self.import_type_mapping.get(&key)
-        {
-          match symbol_id_or_remote_dep {
-            SymbolIdOrRemoteDep::Symbol(symbol_id) => match &n.qualifier {
-              None | Some(TsEntityName::Ident(_)) => {
-                let module = self
-                  .root_symbol
-                  .module_from_id(symbol_id.module_id)
-                  .unwrap();
-                let symbol = module.symbol(symbol_id.symbol_id).unwrap();
-                let name = self.top_level_symbols.ensure_top_level_name(symbol);
-                *main_type = TsType::TsTypeRef(TsTypeRef {
-                  span: DUMMY_SP,
-                  type_name: ident(name).into(),
-                  type_params: n.type_args.take(),
-                });
-              }
-              Some(name) => {
-                todo!();
-              }
-            },
-            SymbolIdOrRemoteDep::RemoteDep(remote_dep) => {
-              n.arg.value = remote_dep.specifier_text.clone().into();
-              n.arg.raw = None;
-              match &remote_dep.name {
-                FileDepName::Name(name) => {
-                  if let Some(qualifier) = &mut n.qualifier {
-                    let ident = resolve_leftmost_in_entity_name_mut(qualifier);
-                    ident.sym = name.to_string().into();
-                  } else {
-                    n.qualifier =
-                      Some(TsEntityName::Ident(ident(name.to_string().into())));
-                  }
-                }
-                FileDepName::Star => {
-                  n.qualifier = None;
-                }
-              }
-            }
-          }
+        if let Some(type_name) = self.handle_ts_import_type(n) {
+          *main_type = TsType::TsTypeRef(TsTypeRef {
+            span: DUMMY_SP,
+            type_name,
+            type_params: n.type_args.take(),
+          });
         }
       }
       _ => {}
@@ -2096,15 +2105,17 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
     visit_mut_ts_type(self, main_type)
   }
 
-  fn visit_mut_ts_type_query_expr(&mut self, n: &mut TsTypeQueryExpr) {
-    visit_mut_ts_type_query_expr(self, n);
-    match n {
+  fn visit_mut_ts_type_query(&mut self, n: &mut TsTypeQuery) {
+    visit_mut_ts_type_query(self, n);
+    match &mut n.expr_name {
       TsTypeQueryExpr::TsEntityName(_) => {
         // handle in entity name
       }
-      TsTypeQueryExpr::Import(_) => {
-        // todo: conslidate somehow with the above
-        todo!()
+      TsTypeQueryExpr::Import(type_import) => {
+        if let Some(type_name) = self.handle_ts_import_type(type_import) {
+          n.type_args = type_import.type_args.take();
+          n.expr_name = type_name.into();
+        }
       }
     }
   }

@@ -43,7 +43,7 @@ function test(test) {
   f, g;
   return test;
 }
-export let Test = class Test extends Other2 {
+export class Test extends Other2 {
   a1;
   b1;
   c1;
@@ -68,7 +68,7 @@ export let Test = class Test extends Other2 {
     this.d1 = d1;
     this.e1 = e1;
   }
-};
+}
 Test = _ts_decorate([
   decs()
 ], Test);
