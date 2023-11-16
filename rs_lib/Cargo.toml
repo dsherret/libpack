@@ -9,11 +9,11 @@ crate_type = ["cdylib", "rlib"]
 [dependencies]
 anyhow = "1.0.71"
 console_error_panic_hook = "0.1.7"
-deno_ast = { version = "0.31.4", features = ["codegen", "module_specifier", "proposal", "react", "sourcemap", "transforms", "typescript", "visit", "transpiling"] }
-deno_graph = { version = "0.60.0", features = ["symbols"], path = "../../deno_graph" }
+deno_ast = { version = "0.31.5", features = ["codegen", "module_specifier", "proposal", "react", "sourcemap", "transforms", "typescript", "visit", "transpiling"] }
+deno_graph = { version = "0.61.1", features = ["symbols"] }
 indexmap = "1.9.3"
-import_map = "0.15.0"
-jsonc-parser = { version = "0.21.1", features = ["serde"] }
+import_map = "0.17.0"
+jsonc-parser = { version = "0.23.0", features = ["serde"] }
 js-sys = "=0.3.63"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.96"
