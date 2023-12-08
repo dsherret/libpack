@@ -1,19 +1,14 @@
 use std::collections::VecDeque;
 
-use deno_graph::symbols::Definition;
 use deno_graph::symbols::DefinitionKind;
 use deno_graph::symbols::DefinitionPath;
-use deno_graph::symbols::FileDep;
 use deno_graph::symbols::FileDepName;
 use deno_graph::symbols::ModuleId;
 use deno_graph::symbols::ModuleInfoRef;
 use deno_graph::symbols::ResolvedExportOrReExportAllPath;
 use deno_graph::symbols::RootSymbol;
-use deno_graph::symbols::Symbol;
 use deno_graph::symbols::SymbolDeclKind;
 use deno_graph::symbols::UniqueSymbolId;
-use deno_graph::ModuleError;
-use deno_graph::ModuleGraph;
 use deno_graph::ModuleSpecifier;
 use indexmap::IndexMap;
 
@@ -77,7 +72,6 @@ pub fn analyze_exports(
   let mut exports_to_dep = IndexMap::new();
   let exports = module_info.exports(root_symbol);
   for (export_name, export_or_re_export_all_path) in exports.resolved {
-    eprintln!("EXPORT: {}", export_name);
     fill_exports_to_dep(
       root_symbol,
       &mut exports_to_dep,
@@ -180,82 +174,4 @@ pub fn resolve_paths_to_symbol_or_remote_dep(
     }
   }
   None
-}
-
-fn get_module_info<'a>(
-  root_symbol: &'a RootSymbol,
-  specifier: &ModuleSpecifier,
-) -> ModuleInfoRef<'a> {
-  root_symbol.module_from_specifier(specifier).unwrap()
-}
-
-fn resolve_deno_graph_module<'a>(
-  graph: &'a ModuleGraph,
-  specifier: &ModuleSpecifier,
-) -> Result<&'a deno_graph::Module, &'a ModuleError> {
-  Ok(graph.try_get_prefer_types(specifier)?.unwrap())
-}
-
-pub enum DefinitionOrRemoteRef<'a> {
-  Definition(Definition<'a>),
-  RemoteRef {
-    specifier: &'a ModuleSpecifier,
-    file_dep: &'a FileDep,
-    symbol: &'a Symbol,
-    parts: Vec<String>,
-  },
-}
-
-fn go_to_definition_or_remote_ref<'a>(
-  root_symbol: &'a RootSymbol,
-  module: ModuleInfoRef<'a>,
-  symbol: &'a Symbol,
-) -> impl Iterator<Item = DefinitionOrRemoteRef<'a>> {
-  struct IntoDefinitionIterator<'a> {
-    queue: VecDeque<DefinitionPath<'a>>,
-  }
-
-  impl<'a> Iterator for IntoDefinitionIterator<'a> {
-    type Item = DefinitionOrRemoteRef<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-      while let Some(path) = self.queue.pop_front() {
-        match path {
-          DefinitionPath::Path {
-            symbol,
-            next,
-            parts,
-            ..
-          } => {
-            if let Some(file_dep) = symbol.file_dep() {
-              if let Some(next) = next.first() {
-                if is_remote_specifier(next.module().specifier()) {
-                  return Some(DefinitionOrRemoteRef::RemoteRef {
-                    specifier: next.module().specifier(),
-                    file_dep,
-                    symbol: next.symbol(),
-                    parts,
-                  });
-                }
-              }
-            }
-            for child_path in next.into_iter().rev() {
-              self.queue.push_front(child_path);
-            }
-          }
-          DefinitionPath::Definition(def) => {
-            return Some(DefinitionOrRemoteRef::Definition(def));
-          }
-          DefinitionPath::Unresolved(_) => todo!(),
-        }
-      }
-
-      None
-    }
-  }
-
-  let paths = root_symbol.find_definition_paths(module, symbol);
-  IntoDefinitionIterator {
-    queue: VecDeque::from(paths),
-  }
 }
