@@ -20,26 +20,17 @@ import * as notUsed from "./a.ts";
 export { b, a } from "./c.ts";
 
 # output.d.ts
-declare module pack2 {
+declare module packModule2 {
+  class Test {
+  }
+  export { Test };
+}
+declare module packModule3 {
   const test1: string;
-  const test2: number, test3: number;
+  const test2: number;
+  const test3: number;
   const test4: number;
   const test5: number;
-  export { test1, test2, test3 };
-  export { test4, test5 };
+  export { test1, test2, test3, test4, test5 };
 }
-declare module pack3 {
-  export class Test {
-  }
-}
-declare module pack1 {
-  import a = pack2;
-  export { a };
-  import __export1 = pack3;
-  export { __export1 as b };
-  const __packTsUnder5_2_Workaround__: unknown;
-}
-import __export1 = pack1.b;
-export { __export1 as b };
-import __export2 = pack1.a;
-export { __export2 as a };
+export { packModule2 as b, packModule3 as a };

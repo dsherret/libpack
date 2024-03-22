@@ -1,0 +1,21 @@
+# https://deno.land/std@0.182.0/path/mod.ts
+export function join() {}
+
+# deps.ts
+export * as path from "https://deno.land/std@0.182.0/path/mod.ts";
+
+# mod.ts
+import { path } from "./deps.ts";
+export * as deps from "./deps.ts";
+
+console.log(path.join);
+
+# output.d.ts
+import * as path from "https://deno.land/std@0.182.0/path/mod.ts";
+declare module ReExportedRemoteImports {
+  export import __path = path;
+}
+declare module packModule1 {
+  export import path = ReExportedRemoteImports.__path;
+}
+export { packModule1 as deps };

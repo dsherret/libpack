@@ -5,16 +5,14 @@ import { pack } from "./mod.ts";
 
 const args = parse(Deno.args, {
   boolean: ["no-deno-json", "no-check", "no-tests"],
-  string: ["output-folder", "build-branch", "release-tag-prefix"],
+  string: ["output-folder"],
 });
 
 const firstArg = args._[0];
 if (firstArg === "build") {
   await buildCommand();
-} else if (firstArg === "publish") {
-  await publishCommand();
 } else {
-  throw new Error("Unexpected command. Expected 'build' or 'publish'.");
+  throw new Error("Unexpected command. Expected 'build'.");
 }
 
 async function buildCommand() {
@@ -60,26 +58,6 @@ async function buildCommand() {
     testFile,
     importMap,
   });
-}
-
-async function publishCommand() {
-  const publishFile = "./publish.ts";
-  const module = await import(publishFile);
-  const publish: typeof import("./publish.ts").publish = module.publish;
-  await publish({
-    branch: getArg("build-branch"),
-    folder: getArg("output-folder"),
-    tagPrefix: getArg("release-tag-prefix"),
-    token: getEnvVar("GITHUB_TOKEN"),
-  });
-}
-
-function getEnvVar(name: string): string {
-  const env = Deno.env.get(name);
-  if (env == null) {
-    throw new Error(`Expected environment variable ${name} to be set.`);
-  }
-  return env;
 }
 
 function getArg<T extends keyof typeof args>(

@@ -1,0 +1,27 @@
+# https://deno.land/x/example/mod.ts
+export interface WalkOptions {}
+
+# deps.ts
+export { WalkOptions as WalkOptionsRenamed } from "https://deno.land/x/example/mod.ts";
+
+# other.ts
+export interface Options {
+  prop: string;
+}
+export class MyClass<T> {
+}
+
+# mod.ts
+export type MyType1 = import("./deps.ts").WalkOptionsRenamed;
+export type MyType2 = import("./other.ts").Options;
+export type MyType3 = typeof import("./other.ts").MyClass<string>;
+
+# output.d.ts
+export type MyType1 = import("https://deno.land/x/example/mod.ts").WalkOptions;
+export type MyType2 = Options;
+export type MyType3 = typeof MyClass<string>;
+interface Options {
+  prop: string;
+}
+declare class MyClass<T> {
+}

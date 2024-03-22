@@ -86,12 +86,6 @@ export class OtherClass {
 class InternalOnSignature {}
 
 # output.d.ts
-import Other = pack1.Other;
-declare class Dep {
-  prop: string;
-  other: Other;
-}
-declare const symbol: Symbol;
 /**
  * My test class
  */ export class Test {
@@ -119,18 +113,19 @@ export class OtherClass {
   constructor(value: string);
   constructor(value: number);
 }
-declare class InternalOnSignature {
+declare class Dep {
+  prop: string;
+  other: Other;
 }
-declare module pack1 {
-  export class Other {
-    prop: string;
-  }
+declare const symbol: Symbol;
+declare class Other {
+  prop: string;
 }
 
 # diagnostics
 [
   {
-    "message": "Missing return type for function with return statement.",
+    "kind": "missingReturnType",
     "specifier": "file:///mod.ts",
     "lineAndColumn": {
       "lineNumber": 31,

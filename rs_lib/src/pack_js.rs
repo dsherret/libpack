@@ -13,13 +13,14 @@ use deno_ast::swc::common::Mark;
 use deno_ast::swc::common::SourceMap;
 use deno_ast::swc::common::DUMMY_SP;
 use deno_ast::swc::visit::*;
-use deno_ast::Diagnostic;
 use deno_ast::EmitOptions;
 use deno_ast::ModuleSpecifier;
+use deno_ast::ParseDiagnostic;
 use deno_graph::CapturingModuleParser;
-use deno_graph::EsmModule;
+use deno_graph::JsModule;
 use deno_graph::ModuleGraph;
 use deno_graph::ModuleParser;
+use deno_graph::ParseOptions;
 use deno_graph::WalkOptions;
 
 use crate::helpers::adjust_spans;
@@ -147,7 +148,7 @@ impl ModuleData {
 
 struct Context<'a> {
   graph: &'a ModuleGraph,
-  parser: &'a CapturingModuleParser<'a>,
+  parser: CapturingModuleParser<'a>,
   module_data: ModuleDataCollection,
 }
 
@@ -159,7 +160,7 @@ pub struct PackOptions {
 
 pub fn pack(
   graph: &ModuleGraph,
-  parser: &CapturingModuleParser,
+  parser: CapturingModuleParser,
   options: PackOptions,
 ) -> Result<String, anyhow::Error> {
   // TODO
@@ -205,7 +206,7 @@ pub fn pack(
       remote_specifiers.push((specifier, module));
     }
     match module {
-      deno_graph::Module::Esm(esm) => {
+      deno_graph::Module::Js(esm) => {
         if options.include_remote || is_file {
           analyze_esm_module(esm, &mut context)?;
         }
@@ -247,10 +248,11 @@ pub fn pack(
             raw: None,
           }),
           type_only: false,
+          phase: Default::default(),
           with: None,
         })));
     } else {
-      if let deno_graph::Module::Esm(_) = module {
+      if let deno_graph::Module::Js(_) = module {
         let export_names = context.module_data.get_export_names(specifier);
         let module_data = context.module_data.get_mut(specifier);
         if export_names.is_empty() || context.graph.roots[0] == **specifier {
@@ -310,15 +312,16 @@ pub fn pack(
         continue;
       }
 
-      if let deno_graph::Module::Esm(esm) = module {
+      if let deno_graph::Module::Js(esm) = module {
         let source = &esm.source;
         // eprintln!("PACKING: {}", specifier);
         let module = {
-          let parsed_source = context.parser.parse_module(
-            &esm.specifier,
-            esm.source.clone(),
-            esm.media_type,
-          )?;
+          let parsed_source = context.parser.parse_module(ParseOptions {
+            specifier: &esm.specifier,
+            source: esm.source.clone(),
+            media_type: esm.media_type,
+            scope_analysis: true,
+          })?;
           // todo: do a single transpile for everything
           let module_data = context.module_data.get_mut(specifier);
           let mut module = module_data.module.take().unwrap();
@@ -605,15 +608,16 @@ impl Visit for HasAwaitKeywordVisitor {
 }
 
 fn analyze_esm_module(
-  esm: &EsmModule,
+  esm: &JsModule,
   context: &mut Context,
-) -> Result<(), Diagnostic> {
+) -> Result<(), ParseDiagnostic> {
   let module_specifier = &esm.specifier;
-  let parsed_source = context.parser.parse_module(
-    module_specifier,
-    esm.source.clone(),
-    esm.media_type,
-  )?;
+  let parsed_source = context.parser.parse_module(ParseOptions {
+    specifier: module_specifier,
+    source: esm.source.clone(),
+    media_type: esm.media_type,
+    scope_analysis: true,
+  })?;
   let is_root_module = context.graph.roots[0] == *module_specifier;
   let mut module = (*parsed_source.module()).clone();
 

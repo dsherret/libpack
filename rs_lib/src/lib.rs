@@ -1,6 +1,7 @@
 use anyhow::Context;
 use deno_ast::ModuleSpecifier;
 use deno_graph::source::CacheSetting;
+use deno_graph::source::LoadOptions;
 use deno_graph::source::Loader;
 use deno_graph::source::ResolutionMode;
 use deno_graph::source::ResolveError;
@@ -51,8 +52,7 @@ impl Loader for JsLoader {
   fn load(
     &mut self,
     specifier: &ModuleSpecifier,
-    _is_dynamic: bool,
-    _cache_setting: CacheSetting,
+    load_options: LoadOptions,
   ) -> deno_graph::source::LoadFuture {
     let specifier = specifier.to_string();
     Box::pin(async move {
@@ -96,7 +96,7 @@ pub async fn pack(
   let options: PackOptions = serde_wasm_bindgen::from_value(options).unwrap();
   let mut loader = JsLoader::default();
   let reporter = JsReporter(on_diagnostic);
-  match rs_pack(&options, &mut loader, &reporter).await {
+  match lib_pack(&options, &mut loader, &reporter).await {
     Ok(output) => Ok(serde_wasm_bindgen::to_value(&output).unwrap()),
     Err(err) => Err(format!("{:#}", err))?,
   }
@@ -120,8 +120,28 @@ impl From<deno_ast::LineAndColumnDisplay> for LineAndColumnDisplay {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum DiagnosticKind {
+  MissingReturnType,
+  UnsupportedTsNamespace,
+}
+
+impl std::fmt::Display for DiagnosticKind {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::MissingReturnType => {
+        write!(f, "Missing return type for function with return statement.")
+      }
+      Self::UnsupportedTsNamespace => {
+        write!(f, "Using a TypeScript namespace adds some complexity and so it's not supported at the moment.")
+      }
+    }
+  }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
-  pub message: String,
+  pub kind: DiagnosticKind,
   pub specifier: ModuleSpecifier,
   pub line_and_column: Option<LineAndColumnDisplay>,
 }
@@ -146,14 +166,14 @@ pub struct PackOutput {
   pub has_default_export: bool,
 }
 
-pub async fn rs_pack(
+pub async fn lib_pack(
   options: &PackOptions,
   loader: &mut dyn Loader,
   reporter: &impl Reporter,
 ) -> Result<PackOutput, anyhow::Error> {
   let mut graph = deno_graph::ModuleGraph::new(deno_graph::GraphKind::All);
   let entry_points = parse_module_specifiers(&options.entry_points)?;
-  let source_parser = DefaultModuleParser::new_for_analysis();
+  let source_parser = DefaultModuleParser::default();
   let capturing_analyzer =
     CapturingModuleAnalyzer::new(Some(Box::new(source_parser)), None);
   let maybe_import_map = match &options.import_map {
@@ -178,7 +198,11 @@ pub async fn rs_pack(
         module_analyzer: Some(&capturing_analyzer),
         reporter: None,
         npm_resolver: None,
-        workspace_members: Vec::new(),
+        workspace_members: &[],
+        file_system: None,
+        jsr_url_provider: None,
+        module_parser: Some(&capturing_analyzer),
+        executor: Default::default(),
       },
     )
     .await;
@@ -186,12 +210,12 @@ pub async fn rs_pack(
   let parser = capturing_analyzer.as_capturing_parser();
   let js = pack_js::pack(
     &graph,
-    &parser,
+    parser,
     pack_js::PackOptions {
       include_remote: false,
     },
   )?;
-  let dts = dts::pack_dts(&graph, &parser, reporter)?;
+  let dts = dts::pack_dts(&graph, parser, reporter)?;
 
   Ok(PackOutput {
     js,
@@ -231,7 +255,14 @@ impl ImportMapResolver {
     loader: &mut dyn Loader,
   ) -> anyhow::Result<Self> {
     let response = loader
-      .load(import_map_url, false, CacheSetting::Use)
+      .load(
+        import_map_url,
+        LoadOptions {
+          is_dynamic: false,
+          cache_setting: CacheSetting::Use,
+          maybe_checksum: None,
+        },
+      )
       .await?
       .ok_or_else(|| anyhow::anyhow!("Could not find {}", import_map_url))?;
     match response {
@@ -241,6 +272,8 @@ impl ImportMapResolver {
       deno_graph::source::LoadResponse::Module {
         content, specifier, ..
       } => {
+        let content = String::from_utf8(content.to_vec())
+          .context("Import map was not valid UTF-8")?;
         let value = jsonc_parser::parse_to_serde_value(
           &content,
           &jsonc_parser::ParseOptions {
@@ -265,12 +298,12 @@ impl deno_graph::source::Resolver for ImportMapResolver {
   fn resolve(
     &self,
     specifier: &str,
-    referrer: &ModuleSpecifier,
+    referrer: &deno_graph::Range,
     _mode: ResolutionMode,
   ) -> Result<ModuleSpecifier, ResolveError> {
     self
       .0
-      .resolve(specifier, referrer)
+      .resolve(specifier, &referrer.specifier)
       .map_err(|err| ResolveError::Other(err.into()))
   }
 }

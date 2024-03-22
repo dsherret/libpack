@@ -9,10 +9,10 @@ export interface Test<T extends string> {
 }
 
 # output.d.ts
-interface A {
-}
 export interface Test<T extends string> {
   prop: string;
   method(prop: number): void;
   [key: string]: A;
+}
+interface A {
 }

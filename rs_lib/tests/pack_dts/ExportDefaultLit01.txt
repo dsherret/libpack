@@ -1,0 +1,6 @@
+# mod.ts
+export default 1;
+
+# output.d.ts
+declare const NoName: number;
+export { NoName as default };

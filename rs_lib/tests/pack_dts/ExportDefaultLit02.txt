@@ -1,0 +1,11 @@
+# mod.ts
+import other from "./other.ts";
+
+export { other, other as default };
+
+# other.ts
+export default "test";
+
+# output.d.ts
+declare const NoName: string;
+export { NoName as other, NoName as default };

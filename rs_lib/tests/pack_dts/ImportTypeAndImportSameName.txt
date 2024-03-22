@@ -1,0 +1,16 @@
+# https://deno.land/x/example/mod.ts
+export class MyDepClass {}
+
+# deps.ts
+export { MyDepClass } from "https://deno.land/x/example/mod.ts";
+
+# mod.ts
+// there was an swc bug here where it was including the import because
+// the MyDepClass identifier in the import was being considered the
+// same as the MyDepClass identifier in the import type qualifier
+import { MyDepClass } from "./deps.ts";
+export type MyType = typeof import("./deps.ts").MyDepClass;
+const test: MyDepClass;
+
+# output.d.ts
+export type MyType = typeof import("https://deno.land/x/example/mod.ts").MyDepClass;
