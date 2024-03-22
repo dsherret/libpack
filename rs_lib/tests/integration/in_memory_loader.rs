@@ -10,12 +10,12 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use anyhow::Result;
 use deno_ast::ModuleSpecifier;
-use deno_graph::source::CacheSetting;
+use deno_graph::source::LoadOptions;
 use deno_graph::source::LoadResponse;
 use deno_graph::source::Loader;
 use futures::Future;
 
-type RemoteFileText = Arc<str>;
+type RemoteFileText = Arc<[u8]>;
 type RemoteFileHeaders = Option<HashMap<String, String>>;
 type RemoteFileResult = Result<(RemoteFileText, RemoteFileHeaders), String>;
 
@@ -75,7 +75,7 @@ impl InMemoryLoader {
       };
     self.modules.insert(
       ModuleSpecifier::parse(specifier.as_ref()).unwrap(),
-      Ok((text.as_ref().into(), None)),
+      Ok((text.as_ref().to_string().into_bytes().into(), None)),
     );
     self
   }
@@ -92,7 +92,7 @@ impl InMemoryLoader {
       .collect();
     self.modules.insert(
       ModuleSpecifier::parse(specifier.as_ref()).unwrap(),
-      Ok((text.as_ref().into(), Some(headers))),
+      Ok((text.as_ref().to_string().into_bytes().into(), Some(headers))),
     );
     self
   }
@@ -114,8 +114,7 @@ impl Loader for InMemoryLoader {
   fn load(
     &mut self,
     specifier: &ModuleSpecifier,
-    is_dynamic: bool,
-    _cache_setting: CacheSetting,
+    options: LoadOptions,
   ) -> Pin<Box<dyn Future<Output = Result<Option<LoadResponse>>> + 'static>> {
     let specifier = specifier.clone();
     let result = self.modules.get(&specifier).map(|result| match result {

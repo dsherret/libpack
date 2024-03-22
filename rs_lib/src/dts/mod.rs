@@ -24,7 +24,7 @@ use deno_ast::ParsedSource;
 use deno_ast::SourcePos;
 use deno_ast::SourceRange;
 use deno_ast::SourceRangedForSpanned;
-use deno_graph::symbols::EsmModuleInfo;
+use deno_graph::symbols::EsModuleInfo;
 use deno_graph::symbols::ExportDeclRef;
 use deno_graph::symbols::FileDepName;
 use deno_graph::symbols::ModuleId;
@@ -54,7 +54,6 @@ use crate::DiagnosticKind;
 use crate::Reporter;
 
 use self::analyzer::analyze_exports;
-use self::analyzer::RemoteDep;
 use self::analyzer::SymbolIdOrRemoteDep;
 
 mod analyzer;
@@ -91,7 +90,7 @@ pub fn pack_dts(
   let global_comments = SingleThreadedComments::default();
   // let mut remote_module_items = Vec::new();
   // let mut default_remote_module_items = Vec::new();
-  let root_symbol = deno_graph::symbols::RootSymbol::new(graph, parser);
+  let root_symbol = deno_graph::symbols::RootSymbol::new(graph, &parser);
   // MAIN TODO:
   // - Now based on the exports, symbols, create a list of pending symbols to iterate over
   //   and start building up the declaration file. Add any symbols found along the way
@@ -102,7 +101,8 @@ pub fn pack_dts(
   assert_eq!(graph.roots.len(), 1);
   let root = &graph.roots[0];
   let root_module_info = root_symbol.module_from_specifier(root).unwrap();
-  let analyzed_exports = analyze_exports(&root_symbol, root_module_info);
+  let analyzed_exports =
+    analyze_exports(&graph, &root_symbol, root_module_info);
   let pending_symbols = analyzed_exports
     .iter()
     .filter_map(|(export_name, d)| match d {
@@ -592,7 +592,8 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
                       };
                     if namespace_info.exports.is_empty() {
                       debug_assert!(!is_remote_specifier(module.specifier()));
-                      let exports = analyze_exports(&self.root_symbol, module);
+                      let exports =
+                        analyze_exports(self.graph, &self.root_symbol, module);
                       for (name, symbol_id_or_dep) in exports {
                         match &symbol_id_or_dep {
                           SymbolIdOrRemoteDep::Symbol(symbol_id) => {
@@ -734,7 +735,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
                       }
                     }
                   }
-                  SymbolNodeRef::ExportDefaultExprLit(default_expr, lit) => {
+                  SymbolNodeRef::ExportDefaultExpr(default_expr) => {
                     let decl = VarDecl {
                       span: default_expr.span,
                       kind: VarDeclKind::Const,
@@ -743,7 +744,10 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
                         span: DUMMY_SP,
                         name: Pat::Ident(BindingIdent {
                           id: ident(top_level_name.clone()),
-                          type_ann: maybe_infer_type_from_lit(lit).map(|t| {
+                          type_ann: maybe_infer_type_from_expr(
+                            &default_expr.expr,
+                          )
+                          .map(|t| {
                             Box::new(TsTypeAnn {
                               span: DUMMY_SP,
                               type_ann: Box::new(t),
@@ -859,6 +863,8 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
                   SymbolNodeRef::TsMethodSignature(_) => {
                     todo!()
                   }
+                  SymbolNodeRef::UsingVar(_, _, _) => todo!(),
+                  SymbolNodeRef::ClassParamProp(_) => todo!(),
                 },
                 None => todo!(),
               }
@@ -1111,6 +1117,7 @@ impl<'a, TReporter: Reporter> DtsBundler<'a, TReporter> {
             raw: None,
           }),
           type_only: false,
+          phase: Default::default(),
           with: None,
         })));
     }
@@ -1186,7 +1193,7 @@ struct DtsTransformer<'a, 'b, TReporter: Reporter> {
   symbol: &'a Symbol,
   top_level_symbols: &'a mut TopLevelSymbols<'b>,
   graph: &'a ModuleGraph,
-  module_info: &'a EsmModuleInfo,
+  module_info: &'a EsModuleInfo,
   ident_mapping: IndexMap<Id, SymbolIdOrRemoteDep>,
   import_type_mapping: IndexMap<(String, Option<String>), SymbolIdOrRemoteDep>,
 }
@@ -1557,7 +1564,11 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
           })
           .collect::<Vec<_>>();
         if let Some(symbol_or_remote_dep) =
-          resolve_paths_to_symbol_or_remote_dep(self.root_symbol, paths)
+          resolve_paths_to_symbol_or_remote_dep(
+            self.graph,
+            self.root_symbol,
+            paths,
+          )
         {
           self.ident_mapping.insert(id, symbol_or_remote_dep);
         }
@@ -1574,10 +1585,11 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
       maybe_ident.as_ref().map(|ident| ident.sym.to_string()),
     );
     if !self.import_type_mapping.contains_key(&key) {
-      if let Some(resolved_specifier) = self
-        .root_symbol
-        .resolve_types_dependency(&n.arg.value, self.module_info.specifier())
-      {
+      if let Some(resolved_specifier) = self.graph.resolve_dependency(
+        &n.arg.value,
+        self.module_info.specifier(),
+        /* prefer types */ true,
+      ) {
         if is_remote_specifier(&resolved_specifier) {
           // no need to do anything, leave this import type as-is
         } else {
@@ -1599,7 +1611,11 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
                 })
                 .collect::<Vec<_>>();
               if let Some(symbol_or_remote_dep) =
-                resolve_paths_to_symbol_or_remote_dep(self.root_symbol, paths)
+                resolve_paths_to_symbol_or_remote_dep(
+                  self.graph,
+                  self.root_symbol,
+                  paths,
+                )
               {
                 self.import_type_mapping.insert(key, symbol_or_remote_dep);
               }
@@ -1874,7 +1890,10 @@ impl<'a, 'b, TReporter: Reporter> VisitMut
           *prop = ObjectPatProp::Assign(AssignPatProp {
             span: kv.span(),
             key: match &kv.key {
-              PropName::Ident(ident) => ident.clone(),
+              PropName::Ident(ident) => BindingIdent {
+                id: ident.clone(),
+                type_ann: None,
+              },
               PropName::Str(_)
               | PropName::Num(_)
               | PropName::Computed(_)
