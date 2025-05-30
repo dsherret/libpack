@@ -1,7 +1,0 @@
-# mod.ts
-export const test: string = "";
-export const varMissingType = new Testing();
-
-# output.d.ts
-export const test: string;
-export const varMissingType;

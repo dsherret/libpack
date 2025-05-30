@@ -1,9 +1,0 @@
-# mod.ts
-export class Test {}
-
-export default 5;
-
-# output.d.ts
-export class Test {
-}
-export default 5;
